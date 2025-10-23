@@ -1,0 +1,1 @@
+# When you're down download / extracting data. Copy scripts here and create docs for using them to download data.

@@ -1,3 +1,6 @@
+import csv
+from collections import Counter
+
 import torch
 from torch import optim
 from torch.nn import CrossEntropyLoss
@@ -8,8 +11,7 @@ from transformers import VideoMAEModel, VideoMAEImageProcessor, VideoMAEConfig
 from transformers import BertConfig, BertModel
 
 
-
-class SignClassifcationLightning(L.LightningModule):
+class SignClassificationLightning(L.LightningModule):
     def __init__(
         self,
         config,
@@ -19,6 +21,9 @@ class SignClassifcationLightning(L.LightningModule):
         self.config = config
         video_mae_config = VideoMAEConfig.from_pretrained(pretrained_model)
         bert_config = BertConfig()
+
+        class_weights_tensor = self._compute_class_weights(config["data_csv"])
+        self.loss_fn = CrossEntropyLoss(weight=class_weights_tensor)
 
         # RGB encoder
         self.rgb_encoder = VideoMAEModel.from_pretrained(
@@ -101,11 +106,130 @@ class SignClassifcationLightning(L.LightningModule):
             depth_values=depth_values,
             skeleton_keypoints=skel_keypoints
         )
-        loss
+        loss = self.loss_fn(logits, labels)
+        self.log(
+            "train_loss", 
+            loss, 
+            on_step=True, 
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.config["batch_size"]
+        )
+        return loss
 
 
     def validation_step(self, batch, batch_idx):
-        pass
+        pixel_values = batch.get("pixel_values")
+        depth_values = batch.get("depth_values")
+        skel_keypoints = batch.get("skeleton_keypoints")
+        labels = batch["labels"]
+
+        assert any([pixel_values is not None, depth_values is not None, skel_keypoints is not None])
+        logits = self(
+            pixel_values=pixel_values,
+            depth_values=depth_values,
+            skeleton_keypoints=skel_keypoints
+        )
+        loss = self.loss_fn(logits, labels)
+
+        preds = torch.argmax(logits, dim=1)
+        acc = (preds == labels).float().mean()
+        self.log(
+            "val_loss", 
+            loss, 
+            on_step=True, 
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.config["batch_size"]
+        )
+        self.log(
+            "val_acc", 
+            acc, 
+            on_step=True, 
+            on_epoch=True,
+            prog_bar=True,
+            logger=True,
+            batch_size=self.config["batch_size"]
+        )
+        return loss
+    
+
+    # def test_step(self, batch, batch_idx):
+    #     pixel_values = batch.get("pixel_values")
+    #     depth_values = batch.get("depth_values")
+    #     skel_keypoints = batch.get("skeleton_keypoints")
+    #     labels = batch["labels"]
+
+    #     assert any([pixel_values is not None, depth_values is not None, skel_keypoints is not None])
+    #     logits = self(
+    #         pixel_values=pixel_values,
+    #         depth_values=depth_values,
+    #         skeleton_keypoints=skel_keypoints
+    #     )
+    #     loss = self.loss_fn(logits, labels)
+
+    #     preds = torch.argmax(logits, dim=1)
+    #     acc = (preds == labels).float().mean()
+    #     self.log(
+    #         "val_loss", 
+    #         loss, 
+    #         on_epoch=True,
+    #         prog_bar=True,
+    #         logger=True,
+    #         batch_size=self.config["batch_size"]
+    #     )
+    #     self.log(
+    #         "val_acc", 
+    #         acc, 
+    #         on_epoch=True,
+    #         prog_bar=True,
+    #         logger=True,
+    #         batch_size=self.config["batch_size"]
+    #     )
+        
+    #     return {"test_loss": loss, "test_acc": acc}
+
 
     def prediction_step(self, batch, batch_idx):
-        pass
+        pixel_values = batch.get("pixel_values")
+        depth_values = batch.get("depth_values")
+        skel_keypoints = batch.get("skeleton_keypoints")
+        labels = batch["labels"]
+
+        assert any([pixel_values is not None, depth_values is not None, skel_keypoints is not None])
+        logits = self(
+            pixel_values=pixel_values,
+            depth_values=depth_values,
+            skeleton_keypoints=skel_keypoints
+        )
+
+        preds = torch.argmax(logits, dim=1)
+
+        return preds
+
+    def _compute_class_weights(self, csv_file):
+        annotations = self._read_label_annotations(csv_file)
+        labels = [label for _, label in annotations]
+        label_cts = Counter(labels)
+
+        num_classes = len(label_cts)
+        total_samples = len(labels)
+
+        class_weights = {}
+        for label, ct in label_cts.items():
+            class_weights[label] = total_samples / (num_classes * ct)
+
+        weight_list = [class_weights[i] for i in range(num_classes)]
+        class_weights_tensor = torch.tensor(weight_list, dtype=torch.float32)
+
+        return class_weights_tensor
+
+    def _read_label_annotations(self, csv_f):
+        with open(csv_f, newline='') as inf:
+            rows = [tuple(r) for r in csv.reader(inf)]
+        header = rows[0]
+        assert header == ("rgb_path", "depth_path", "skel_path", "label")
+        data = rows[1:]
+        return data

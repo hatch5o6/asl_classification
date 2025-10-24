@@ -207,7 +207,7 @@ class SignClassificationLightning(L.LightningModule):
 
         preds = torch.argmax(logits, dim=1)
 
-        return preds
+        return preds, labels
 
     def _compute_class_weights(self, csv_file):
         annotations = self._read_label_annotations(csv_file)

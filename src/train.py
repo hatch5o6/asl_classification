@@ -11,16 +11,15 @@ import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor, Callback
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 from pytorch_lightning.utilities import rank_zero_info
-from transformers import VideoMAEImageProcessor
+from transformers import VideoMAEImageProcessor, VideoMAEConfig
 from sklearn.metrics import classification_report
 
 from asl_dataset import RGBDSkel_Dataset
 from lightning_asl import SignClassificationLightning
 
+video_mae_config = VideoMAEConfig()
 
-def train(config_f):
-    config = read_config(config_f)
-
+def train(config):
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     print("WORLD_SIZE:", world_size)
 
@@ -32,7 +31,7 @@ def train(config_f):
     logs_dir = os.path.join(save_dir, "logs")
     tb_dir = os.path.join(save_dir, "tb")
     if int(os.environ.get("RANK", 0)) == 0:
-        if os.path.eixsts(save_dir):
+        if os.path.exists(save_dir):
             rank_zero_info(f"deleting {save_dir}")
             shutil.rmtree(save_dir)
         rank_zero_info(f"creating {save_dir}")
@@ -48,7 +47,7 @@ def train(config_f):
     train_dataset = RGBDSkel_Dataset(
         annotations=config["train_csv"],
         processor=processor,
-        num_frames=config["num_frames"],
+        num_frames=video_mae_config.num_frames,
         modalities=modalities
     )
     train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
@@ -57,7 +56,7 @@ def train(config_f):
     val_dataset = RGBDSkel_Dataset(
         annotations=config["val_csv"],
         processor=processor,
-        num_frames=config["num_frames"],
+        num_frames=video_mae_config.num_frames,
         modalities=modalities
     )
     val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
@@ -100,7 +99,8 @@ def train(config_f):
         callbacks=train_callbacks,
         logger=[logger, tb_logger],
         deterministic=True,
-        strategy=strategy
+        strategy=strategy,
+        precision="16-mixed"
         # gradient_clip_val=config["gradient_clip_val"]
     )
 
@@ -111,10 +111,17 @@ def train(config_f):
         val_dataloader
     )
 
+    val_acc = trainer.callback_metrics["val_acc"]
+    assert isinstance(val_acc, torch.Tensor)
+    val_acc = val_acc.item()
+    assert isinstance(val_acc, float)
 
-def test(config_f):
-    config = read_config(config_f)
+    print(f"VAL ACC AT THE END OF TRAINING: {val_acc}")
 
+    return val_acc
+
+
+def test(config):
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     print("WORLD_SIZE:", world_size)
 
@@ -140,7 +147,7 @@ def test(config_f):
     test_dataset = RGBDSkel_Dataset(
         annotations=config["test_csv"],
         processor=processor,
-        num_frames=config["num_frames"],
+        num_frames=video_mae_config.num_frames,
         modalities=modalities
     )
     test_dataloader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)
@@ -165,12 +172,15 @@ def test(config_f):
         assert checkpoint_to_test.endswith(".ckpt")
 
     lightning_model = SignClassificationLightning.load_from_checkpoint(
-        checkpoint_path=checkpoint_to_test
+        checkpoint_path=checkpoint_to_test,
         config=config
     )
     lightning_model.eval()
 
-    trainer = L.Trainer(accelerator=config["device"])
+    trainer = L.Trainer(
+        accelerator=config["device"], 
+        precision="16-mixed"
+    )
 
     batch_predictions = trainer.predict(
         lightning_model,
@@ -235,7 +245,7 @@ def get_label_dict(class_csv, lang="EN"):
             chosen_word = None
             if lang == "EN":
                 chosen_word = en_word
-            elif lang = "TR":
+            elif lang == "TR":
                 chosen_word = tr_word
             assert chosen_word is not None
 
@@ -258,9 +268,12 @@ class PrintCallback(Callback):
 def read_config(f):
     with open(f) as inf:
         config = yaml.safe_load(inf)
-    rank_zero_info(f"CONFIG: {csv_f}")
+    config["pretrained_learning_rate"] = float(config["pretrained_learning_rate"])
+    config["new_learning_rate"] = float(config["new_learning_rate"])
+    config["warmup_steps"] = round(0.05 * config["max_steps"])
+    rank_zero_info(f"CONFIG: {f}")
     for k, v in config.items():
-        rank_zero_info(f"\t-t{k}=`{v}`, {type(v)}")
+        rank_zero_info(f"\t-{k}=`{v}`, {type(v)}")
     rank_zero_info("\n\n")
     return config
 
@@ -280,9 +293,10 @@ if __name__ == "__main__":
     print("# train.py #")
     print("############")
     args = get_args()
+    config = read_config(args.config)
     if args.mode == "TRAIN":
         print("- TRAINING -")
-        train(args.config)
+        train(config)
     elif args.mode == "TEST":
         print("- TESTING -")
-        test(args.config)
+        test(config)

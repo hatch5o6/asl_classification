@@ -29,22 +29,22 @@ class RGBDSkel_Dataset(Dataset):
         data = rows[1:]
         return data
     
-    def _load_video(self, path):
+    def _load_video(self, path, assert_frames=3):
         vr = VideoReader(path, ctx=cpu(0))
         total_frames = len(vr)
         indices = torch.linspace(0, total_frames - 1, self.num_frames).long()
         frames = vr.get_batch(indices).asnumpy()
-        assert frames.shape[-1] == 3
+        assert frames.shape[-1] == assert_frames, f"frames.shape: {frames.shape}, assert_frames: {assert_frames}"
         return list(frames), total_frames
     
-    def _load_depth(self, path):
-        vr = VideoReader(path, ctx=cpu(0))
-        total_frames = len(vr)
-        indices = torch.linspace(0, total_frames - 1, self.num_frames).long()
-        frames = vr.get_batch(indices).asnumpy()
-        assert frames.shape[-1] == 1
-        frames = np.repeat(frames, 3, axis=-1)
-        return list(frames), total_frames
+    # def _load_depth(self, path):
+    #     vr = VideoReader(path, ctx=cpu(0))
+    #     total_frames = len(vr)
+    #     indices = torch.linspace(0, total_frames - 1, self.num_frames).long()
+    #     frames = vr.get_batch(indices).asnumpy()
+    #     assert frames.shape[-1] == 1
+    #     frames = np.repeat(frames, 3, axis=-1)
+    #     return list(frames), total_frames
 
     def _load_skeleton(self, path):
         keypoints = np.load(path)
@@ -69,13 +69,17 @@ class RGBDSkel_Dataset(Dataset):
 
         # RGB
         if "rgb" in self.modalities and rgb_path.strip() != "":
+            # print("rgb_path:", rgb_path)
             rgb_frames, rgb_len = self._load_video(rgb_path)
             processed = self.processor(rgb_frames, return_tensors="pt")
             output["pixel_values"] = processed["pixel_values"].squeeze(0)
 
         # Depth
         if "depth" in self.modalities and depth_path.strip() != "":
-            depth_frames, depth_len = self._load_depth(depth_path)
+            # print("depth path:", depth_path)
+            depth_frames, depth_len = self._load_video(depth_path 
+                                                    #,    assert_frames=1
+                                                       )
             processed = self.processor(depth_frames, return_tensors="pt")
             output["depth_values"] = processed["pixel_values"].squeeze(0)
         

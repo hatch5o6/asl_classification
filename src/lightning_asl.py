@@ -4,7 +4,7 @@ from collections import Counter
 import torch
 from torch import optim
 from torch.nn import CrossEntropyLoss
-import Lightning as L
+import lightning as L
 from torch.optim.lr_scheduler import LambdaLR
 from pytorch_lightning.utilities import rank_zero_info
 from transformers import VideoMAEModel, VideoMAEImageProcessor, VideoMAEConfig
@@ -19,43 +19,82 @@ class SignClassificationLightning(L.LightningModule):
     ):
         super().__init__()
         self.config = config
-        video_mae_config = VideoMAEConfig.from_pretrained(pretrained_model)
-        bert_config = BertConfig()
 
-        class_weights_tensor = self._compute_class_weights(config["data_csv"])
+        #----------------------------- CONFIGS -----------------------------#
+        # RGB config
+        video_mae_config = VideoMAEConfig.from_pretrained(pretrained_model)
+        print("\n\n")
+        print(f"RGB Config (VideoMAE from {pretrained_model}):\n________________________________________")
+        self.print_config(video_mae_config)
+
+        # Depth config
+        depth_config = VideoMAEConfig.from_pretrained(pretrained_model)
+        depth_config.num_frames=video_mae_config.num_frames
+        depth_config.image_size=self.config["depth_image_size"]
+        depth_config.hidden_size=self.config["depth_hidden_dim"]
+        depth_config.num_hidden_layers=self.config["depth_hidden_layers"]
+        depth_config.num_attention_heads=self.config["depth_att_heads"]
+        depth_config.intermediate_size=self.config["depth_intermediate_size"]
+        depth_config.patch_size=self.config["depth_patch_size"]
+        # depth_config.num_channels=1
+        depth_config.attn_implementation="sdpa"
+        print("Depth (VideoMAE) config:\n________________________________________")
+        self.print_config(depth_config)
+
+        # Skeleton config
+        bert_config = BertConfig(
+            hidden_size=self.config["bert_hidden_dim"],
+            num_hidden_layers=self.config["bert_hidden_layers"],
+            num_attention_heads=self.config["bert_att_heads"],
+            intermediate_size=self.config["bert_intermediate_size"],
+            max_position_embeddings=video_mae_config.num_frames,
+            vocab_size=1,
+            type_vocab_size=1
+        )
+        print("Skeleton (BERT) config:\n________________________________________")
+        self.print_config(bert_config)
+
+        #----------------------------- LOSS -----------------------------#
+        # Loss function
+        class_weights_tensor, num_classes_in_training = self._compute_class_weights(self.config["train_csv"])
         self.loss_fn = CrossEntropyLoss(weight=class_weights_tensor)
 
+        #----------------------------- TRAINABLE PARAMETERS -----------------------------#
         # RGB encoder
         self.rgb_encoder = VideoMAEModel.from_pretrained(
             pretrained_model,
-            attn_implementation="sdpa",
-            dtype=torch.float16
+            attn_implementation="sdpa"
         )
         self.rgb_head = torch.nn.Linear(self.rgb_encoder.config.hidden_size, self.config["fusion_dim"])
 
         # Depth encoder
-        self.depth_encoder = VideoMAEModel(
-            video_mae_config,
-            attn_implementation="sdpa",
-            dtype=torch.float16
-        )
+        self.depth_encoder = VideoMAEModel(depth_config)
         self.depth_head = torch.nn.Linear(self.depth_encoder.config.hidden_size, self.config["fusion_dim"])
 
         # Skeleton encoder
         self.skel_encoder = BertModel(bert_config)
         self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
 
-
         # modality weights [rgb, depth, skeleton]
         self.modality_weights = torch.nn.Parameter(torch.ones(3))
 
         # Classifier
+        num_classes = self._get_num_classes(self.config["class_id_csv"])
+        assert num_classes_in_training == num_classes
         self.classifier = torch.nn.Sequential(
-            torch.nn.Linear(self.fusion_dim, self.fusion_dim),
-            torch.nn.ReLU(),
-            torch.nn.Linear(self.fusion_dim, self.config["num_classes"])
+            torch.nn.Linear(self.config["fusion_dim"], self.config["fusion_dim"]),
+            torch.nn.GELU(),
+            torch.nn.Dropout(self.config["classifier_dropout"]),
+            torch.nn.Linear(self.config["fusion_dim"], num_classes)
         )
 
+    def print_config(self, config):
+        for k, v in vars(config).items():
+            if k in ["label2id", "id2label"]:
+                print(f"-{k}=`{{SKIP}}`")
+            else:
+                print(f"-{k}=`{v}`")
+        print("\n\n")
 
     def forward(self, pixel_values=None, depth_values=None, skeleton_keypoints=None):
         # assert at least one modality is passed
@@ -208,10 +247,70 @@ class SignClassificationLightning(L.LightningModule):
         preds = torch.argmax(logits, dim=1)
 
         return preds, labels
+    
+    def configure_optimizers(self):
+        optimizer = optim.AdamW([
+            {
+                "params": self.rgb_encoder.parameters(), 
+                "lr": self.config["pretrained_learning_rate"], 
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": self.rgb_head.parameters(),
+                "lr": self.config["new_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": self.depth_encoder.parameters(),
+                "lr": self.config["new_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": self.depth_head.parameters(),
+                "lr": self.config["new_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": self.skel_encoder.parameters(),
+                "lr": self.config["new_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": self.skel_head.parameters(),
+                "lr": self.config["new_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": [self.modality_weights],
+                "lr": self.config["new_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": self.classifier.parameters(),
+                "lr": self.config["new_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            }
+        ])
+
+        
+        lr_lambda = get_linear_schedule_with_warmup(
+            num_warmup_steps=self.config["warmup_steps"],
+            num_training_steps=self.config["max_steps"]
+        )
+        scheduler = LambdaLR(optimizer, lr_lambda)
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "step",
+                "frequency": 1
+            }
+        }
 
     def _compute_class_weights(self, csv_file):
         annotations = self._read_label_annotations(csv_file)
-        labels = [label for _, label in annotations]
+        labels = [int(label) for _, _, _, label in annotations]
         label_cts = Counter(labels)
 
         num_classes = len(label_cts)
@@ -224,7 +323,7 @@ class SignClassificationLightning(L.LightningModule):
         weight_list = [class_weights[i] for i in range(num_classes)]
         class_weights_tensor = torch.tensor(weight_list, dtype=torch.float32)
 
-        return class_weights_tensor
+        return class_weights_tensor, num_classes
 
     def _read_label_annotations(self, csv_f):
         with open(csv_f, newline='') as inf:
@@ -233,3 +332,25 @@ class SignClassificationLightning(L.LightningModule):
         assert header == ("rgb_path", "depth_path", "skel_path", "label")
         data = rows[1:]
         return data
+    
+    def _get_num_classes(self, class_id_csv):
+        with open(class_id_csv, newline='') as inf:
+            rows = [tuple(r) for r in csv.reader(inf)]
+        header = rows[0]
+        assert header == ("ClassId", "TR", "EN")
+        labels = set()
+        data = rows[1:]
+        for label, tr_word, en_word in data:
+            assert label not in labels
+            labels.add(label)
+        return len(labels)
+
+def get_linear_schedule_with_warmup(num_warmup_steps, num_training_steps):
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        return max(
+            0.0,
+            float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps)),
+        )
+    return lr_lambda

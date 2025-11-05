@@ -1,0 +1,36 @@
+save: /home/hatch5o6/nobackup/archive/CS650R/asl/rgb+d
+test_checkpoint: null
+modalities: ["rgb"]
+
+train_csv: /home/hatch5o6/CS650R/asl/data/train.csv
+val_csv: /home/hatch5o6/CS650R/asl/data/val.csv
+test_csv: /home/hatch5o6/CS650R/asl/data/test.csv
+class_id_csv: /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/AUTSL/class_ids/SignList_ClassId_TR_EN.csv
+
+seed: 4000
+
+n_gpus: 4
+device: cuda
+
+pretrained_learning_rate: 5e-05
+new_learning_rate: 1e-04
+weight_decay: 0.01
+
+batch_size: 32
+early_stop: 10
+save_top_k: 10
+val_interval: 0.25 # fraction of epoch
+max_steps: 200000
+
+fusion_dim: 256
+depth_image_size: 224
+depth_hidden_dim: 384
+depth_hidden_layers: 6
+depth_att_heads: 6
+depth_intermediate_size: 1536
+depth_patch_size: 16
+bert_hidden_layers: 4
+bert_hidden_dim: 256
+bert_att_heads: 4
+bert_intermediate_size: 512
+classifier_dropout: 0.1

@@ -14,15 +14,18 @@ import cv2
 import numpy as np
 import os
 
+# DEVICE="cuda:0"
+DEVICE="cpu"
+
 # 1. Load body detector (for bounding box)
 det_config = 'configs/body/2d_kpt_sview_rgb_img/topdown_heatmap/coco/hrnet_w32_coco_256x192.py'
 det_checkpoint = 'https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-6c4f3ab4_20200708.pth'
-detector = init_model(det_config, det_checkpoint, device='cuda:0')
+detector = init_model(det_config, det_checkpoint, device=DEVICE)
 
 # 2. Load hand keypoint model
 hand_config = 'configs/hand/2d_kpt_sview_rgb_img/topdown_heatmap/onehand10k/hrnet_w18_onehand10k_256x256.py'
 hand_checkpoint = 'https://download.openmmlab.com/mmpose/hand/hrnet/hrnet_w18_onehand10k_256x256-5f9d84bf_20210909.pth'
-hand_model = init_model(hand_config, hand_checkpoint, device='cuda:0')
+hand_model = init_model(hand_config, hand_checkpoint, device=DEVICE)
 
 def extract_skeleton_from_video(video_path, output_path):
     cap = cv2.VideoCapture(video_path)

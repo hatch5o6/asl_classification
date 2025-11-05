@@ -23,21 +23,24 @@ class SignClassificationLightning(L.LightningModule):
         #----------------------------- CONFIGS -----------------------------#
         # RGB config
         video_mae_config = VideoMAEConfig.from_pretrained(pretrained_model)
+        video_mae_config.attention_dropout = 0.0
+        video_mae_config.drop_out = 0.0
+        video_mae_config.attn_implementation = "sdpa"
         print("\n\n")
         print(f"RGB Config (VideoMAE from {pretrained_model}):\n________________________________________")
         self.print_config(video_mae_config)
 
         # Depth config
         depth_config = VideoMAEConfig.from_pretrained(pretrained_model)
-        depth_config.num_frames=video_mae_config.num_frames
-        depth_config.image_size=self.config["depth_image_size"]
-        depth_config.hidden_size=self.config["depth_hidden_dim"]
-        depth_config.num_hidden_layers=self.config["depth_hidden_layers"]
-        depth_config.num_attention_heads=self.config["depth_att_heads"]
-        depth_config.intermediate_size=self.config["depth_intermediate_size"]
-        depth_config.patch_size=self.config["depth_patch_size"]
-        # depth_config.num_channels=1
-        depth_config.attn_implementation="sdpa"
+        depth_config.num_frames = video_mae_config.num_frames
+        depth_config.image_size = self.config["depth_image_size"]
+        depth_config.hidden_size = self.config["depth_hidden_dim"]
+        depth_config.num_hidden_layers = self.config["depth_hidden_layers"]
+        depth_config.num_attention_heads = self.config["depth_att_heads"]
+        depth_config.intermediate_size = self.config["depth_intermediate_size"]
+        depth_config.patch_size = self.config["depth_patch_size"]
+        # depth_config.num_channels = 1
+        depth_config.attn_implementation = "sdpa"
         print("Depth (VideoMAE) config:\n________________________________________")
         self.print_config(depth_config)
 
@@ -63,16 +66,19 @@ class SignClassificationLightning(L.LightningModule):
         # RGB encoder
         self.rgb_encoder = VideoMAEModel.from_pretrained(
             pretrained_model,
-            attn_implementation="sdpa"
+            config=video_mae_config
         )
+        self.rgb_encoder.train()
         self.rgb_head = torch.nn.Linear(self.rgb_encoder.config.hidden_size, self.config["fusion_dim"])
 
         # Depth encoder
         self.depth_encoder = VideoMAEModel(depth_config)
+        self.depth_encoder.train()
         self.depth_head = torch.nn.Linear(self.depth_encoder.config.hidden_size, self.config["fusion_dim"])
 
         # Skeleton encoder
         self.skel_encoder = BertModel(bert_config)
+        self.skel_encoder.train()
         self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
 
         # modality weights [rgb, depth, skeleton]

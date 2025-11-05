@@ -18,8 +18,7 @@ python src/clean_slurm_outputs.py
 
 nvidia-smi
 
-# srun \
-python src/train.py \
+srun python src/train.py \
     -c configs/rgb+d.yaml \
     -m TRAIN
 

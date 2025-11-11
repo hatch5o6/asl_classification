@@ -4,3 +4,4 @@ data/train.csv
 data/val.csv
 data/*.npy
 data/*.mp4
+**/__pycache__/

@@ -1,2 +1,4 @@
 **/slurm_outputs/
-**/download_data/
+data/test.csv
+data/train.csv
+data/val.csv

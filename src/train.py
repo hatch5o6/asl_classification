@@ -6,11 +6,12 @@ import csv
 import json
 
 import torch
+torch.set_float32_matmul_precision("medium")
 from torch.utils.data import DataLoader
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor, Callback
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
-from pytorch_lightning.utilities import rank_zero_info
+from pytorch_lightning.utilities import rank_zero_info, rank_zero_only
 from transformers import VideoMAEImageProcessor, VideoMAEConfig
 from sklearn.metrics import classification_report
 
@@ -21,7 +22,7 @@ video_mae_config = VideoMAEConfig()
 
 def train(config):
     world_size = int(os.environ.get("WORLD_SIZE", 1))
-    print("WORLD_SIZE:", world_size)
+    print("WORLD_SIZE:", world_size, "RANK:", os.environ.get("RANK"))
 
     L.seed_everything(config["seed"], workers=True)
 
@@ -30,7 +31,8 @@ def train(config):
     checkpoints_dir = os.path.join(save_dir, "checkpoints")
     logs_dir = os.path.join(save_dir, "logs")
     tb_dir = os.path.join(save_dir, "tb")
-    if int(os.environ.get("RANK", 0)) == 0:
+    # if int(os.environ.get("RANK", 0)) == 0:
+    if rank_zero_only.rank == 0:
         if os.path.exists(save_dir):
             rank_zero_info(f"deleting {save_dir}")
             shutil.rmtree(save_dir)
@@ -85,8 +87,8 @@ def train(config):
     tb_logger = TensorBoardLogger(save_dir=tb_dir)
 
     # set parallelization
-    if config["n_gpus"] >= 1:
-        strategy = "ddp"
+    if config["n_gpus"] > 1:
+        strategy = "ddp_find_unused_parameters_true"
     else:
         strategy = "auto"
 
@@ -95,6 +97,7 @@ def train(config):
         max_steps=config["max_steps"],
         val_check_interval=config["val_interval"],
         accelerator=config["device"],
+        devices="auto",
         default_root_dir=save_dir,
         callbacks=train_callbacks,
         logger=[logger, tb_logger],
@@ -131,7 +134,8 @@ def test(config):
     save_dir = config["save"]
     predictions_dir = os.path.join(save_dir, "predictions")
     checkpoints_dir = os.path.join(save_dir, "checkpoints")
-    if int(os.environ.get("RANK", 0)) == 0:
+    # if int(os.environ.get("RANK", 0)) == 0:
+    if rank_zero_only.rank == 0:
         assert os.path.exists(save_dir)
         assert os.path.exists(checkpoints_dir)
         if os.path.exists(predictions_dir):

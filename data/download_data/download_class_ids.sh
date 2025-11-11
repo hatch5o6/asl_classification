@@ -1,0 +1,1 @@
+wget https://data.chalearnlap.cvc.uab.cat/AuTSL/data/SignList_ClassId_TR_EN.csv

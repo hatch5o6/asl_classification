@@ -108,6 +108,26 @@ def process_video_extract_landmarks(input_path, output_npy_path):
     # Stack all frames into a single numpy array
     all_frames_np = np.stack(all_frames)
     np.save(output_npy_path, all_frames_np)
+    print(f"Saved numpy: {output_npy_path}")
+
+if args.mode == 'display':
+    process_video_display(args.input_path)
+elif args.mode == 'extract':
+    input_folder = args.input_path
+    output_folder = args.output_path
+    os.makedirs(output_folder, exist_ok=True)
+    for filename in os.listdir(input_folder):
+        assert filename.endswith("_color.mp4") or filename.endswith("_depth.mp4")
+        if filename.endswith("_depth.mp4"): continue
+        if filename.lower().endswith('.mp4'):
+            input_path = os.path.join(input_folder, filename)
+            base_filename = os.path.splitext(filename)[0]
+            output_npy_path = os.path.join(output_folder, f"{base_filename}_landmarks.npy")
+            print(f"Processing: {filename}")
+            if not os.path.exists(output_npy_path):
+                process_video_extract_landmarks(input_path, output_npy_path)
+                print(f"Completed: {filename}")
+    print("All processing complete.")
     print(f"✓ Saved: {output_npy_path}")
     return output_npy_path
 

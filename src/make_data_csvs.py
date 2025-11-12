@@ -9,11 +9,14 @@ def make_csvs(
 ):
     assert out_f.endswith(".csv")
     data = {}
+    assert d_path.endswith("/test") or d_path.endswith("/train") or d_path.endswith("/val")
+    skel_dir_path = d_path + "_skel"
+    GET_SKEL = os.path.exists(skel_dir_path)
+
     for f in os.listdir(d_path):
         assert any([
             f.endswith("_color.mp4"),
-            f.endswith("_depth.mp4"),
-            f.endswith("_color.skeleton.npy")
+            f.endswith("_depth.mp4")
         ])
         signer = f.split("_")[0]
         sample = f.split("_")[1]
@@ -24,12 +27,19 @@ def make_csvs(
         if f.endswith("_color.mp4"):
             assert data[(signer, sample)]["color"] is None
             data[(signer, sample)]["color"] = f_path
+
+            assert data[(signer, sample)]["skel"] is None
+            if GET_SKEL:
+                skel_path = os.path.join(skel_dir_path, f[:-4] + "_landmarks.npy")
+                assert os.path.exists(skel_path)
+                data[(signer, sample)]["skel"] = skel_path
+
         elif f.endswith("_depth.mp4"):
             assert data[(signer, sample)]["depth"] is None
             data[(signer, sample)]["depth"] = f_path
-        elif f.endswith("_color.skeleton.npy"):
-            assert data[(signer, sample)]["skel"] is None
-            data[(signer, sample)]["skel"] = f_path
+        # elif f.endswith("_color.skeleton.npy"):
+        #     assert data[(signer, sample)]["skel"] is None
+        #     data[(signer, sample)]["skel"] = f_path
     
     labels = read_labels(labels_f)
 

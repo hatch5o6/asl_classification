@@ -85,6 +85,8 @@ elif args.mode == 'extract':
     output_folder = args.output_path
     os.makedirs(output_folder, exist_ok=True)
     for filename in os.listdir(input_folder):
+        assert filename.endswith("_color.mp4") or filename.endswith("_depth.mp4")
+        if filename.endswith("_depth.mp4"): continue
         if filename.lower().endswith('.mp4'):
             input_path = os.path.join(input_folder, filename)
             base_filename = os.path.splitext(filename)[0]

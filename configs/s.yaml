@@ -5,7 +5,7 @@ modalities: ["skeleton"]
 train_csv: data/train.csv
 val_csv: data/val.csv
 test_csv: data/test.csv
-class_id_csv: ~/groups/grp_asl_classification/nobackup/archive/AUTSL/class_ids/SignList_ClassId_TR_EN.csv
+class_id_csv: data/SignList_ClassId_TR_EN.csv
 
 seed: 4000
 

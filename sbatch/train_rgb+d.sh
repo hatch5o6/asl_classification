@@ -13,6 +13,9 @@
 #SBATCH --job-name=rgb+d_train
 #SBATCH --qos=dw87
 
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export HF_HUB_OFFLINE=1
 
 python src/clean_slurm_outputs.py
 

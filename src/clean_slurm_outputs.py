@@ -15,6 +15,7 @@ for dir in dirs:
     files = {}
     for f in fs:        
         if os.path.isdir(os.path.join(dir, f)): continue
+        if f.startswith("SAVE_"): continue
         number = f.split("_")[0]
         number = int(number)
         name = "_".join(f.split("_")[1:])

@@ -13,7 +13,8 @@
 #SBATCH --partition cs
 
 ml load p7zip
-for f in train_set_vfbha39.zip.*; do
-    echo "extracting $f"
-    7z x "$f" -p"MdG3z6Eh1t" -y
-done
+# for f in train_set_vfbha39.zip.*; do
+#     echo "extracting $f"
+#     7z x "$f" -p"MdG3z6Eh1t" -y
+# done
+7z x train_set_vfbha39.zip.001 -p"MdG3z6Eh1t" -y

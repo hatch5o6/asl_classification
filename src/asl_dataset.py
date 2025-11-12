@@ -7,6 +7,7 @@ from decord import VideoReader, cpu
 import torch
 import numpy as np
 from transformers import VideoMAEImageProcessor
+import os
 
 class RGBDSkel_Dataset(Dataset):
     def __init__(
@@ -30,7 +31,9 @@ class RGBDSkel_Dataset(Dataset):
         return data
     
     def _load_video(self, path, assert_frames=3):
+        # print(f"DOES {path} EXIST?", os.path.exists(path))
         vr = VideoReader(path, ctx=cpu(0))
+        # vr = VideoReader(path, ctx=cpu())
         total_frames = len(vr)
         indices = torch.linspace(0, total_frames - 1, self.num_frames).long()
         frames = vr.get_batch(indices).asnumpy()

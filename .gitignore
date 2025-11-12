@@ -1,3 +1,6 @@
+**/slurm_outputs/
+data/test.csv
+data/train.csv
+data/val.csv
 data/*.npy
 data/*.mp4
-testing.ipynb

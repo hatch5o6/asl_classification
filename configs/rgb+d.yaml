@@ -14,6 +14,8 @@ device: cuda
 
 pretrained_learning_rate: 5e-05
 new_learning_rate: 1e-04
+skel_learning_rate: 1e-04
+class_learning_rate: 1e-04
 weight_decay: 0.01
 
 batch_size: 32

@@ -10,9 +10,14 @@ def main(config, n_trials):
     def objective(trial):
         cfg = copy.deepcopy(base_cfg)
 
-        # parameters
-        cfg["pretrained_learning_rate"] = trial.suggest_float("pretrained_learning_rate", ,log=True)
-        cfg["new_learning_rate"] = trial.suggest_float("new_learning_rate", ,log=True)
+        assert cfg["modalities"] in [["rgb", "depth"], ["skeleton"]]
+        if cfg["modalities"] == ["rgb", "depth"]:
+
+            # parameters
+            cfg["pretrained_learning_rate"] = trial.suggest_float("pretrained_learning_rate", ,log=True)
+            cfg["new_learning_rate"] = trial.suggest_float("new_learning_rate", ,log=True)
+            cfg["class_learning_rate"] = trial.suggest_float("new_learning_rate", ,log=True)
+        
         cfg["batch_size"] = trial.suggest_categorical("batch_size", [])
         cfg["fusion_dim"] = trial.suggest_categorical("fusion_dim", [])
         cfg["depth_image_size"] = trial.suggest_categorical("depth_image_size", [])

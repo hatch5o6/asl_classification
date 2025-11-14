@@ -278,22 +278,22 @@ class SignClassificationLightning(L.LightningModule):
             },
             {
                 "params": self.skel_encoder.parameters(),
-                "lr": self.config["new_learning_rate"],
+                "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             },
             {
                 "params": self.skel_head.parameters(),
-                "lr": self.config["new_learning_rate"],
+                "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             },
             {
                 "params": [self.modality_weights],
-                "lr": self.config["new_learning_rate"],
+                "lr": self.config["class_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             },
             {
                 "params": self.classifier.parameters(),
-                "lr": self.config["new_learning_rate"],
+                "lr": self.config["class_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             }
         ])

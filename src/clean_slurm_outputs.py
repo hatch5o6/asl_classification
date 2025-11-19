@@ -8,7 +8,8 @@ top = args.top
 
 
 dirs = [
-    "sbatch/slurm_outputs"
+    "sbatch/slurm_outputs",
+    "/home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs"
 ]
 for dir in dirs:
     fs = os.listdir(dir)

@@ -78,6 +78,7 @@ class SignClassificationLightning(L.LightningModule):
 
         # Skeleton encoder
         self.skel_encoder = BertModel(bert_config)
+        self.skel_proj = torch.nn.Linear(config["num_pose_points"] * 2, self.skel_encoder.config.hidden_size)
         self.skel_encoder.train()
         self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
 
@@ -104,7 +105,8 @@ class SignClassificationLightning(L.LightningModule):
 
     def forward(self, pixel_values=None, depth_values=None, skeleton_keypoints=None):
         # assert at least one modality is passed
-        assert any([pixel_values is not None, depth_values is not None, skeleton_keypoints is not None])
+        # assert any([pixel_values is not None, depth_values is not None, skeleton_keypoints is not None])
+        assert pixel_values is not None or depth_values is not None or skeleton_keypoints is not None
 
         features = []
         weights = []
@@ -125,7 +127,11 @@ class SignClassificationLightning(L.LightningModule):
             
         # Skeleton
         if skeleton_keypoints is not None:
-            skel_output = self.skel_encoder(skeleton_keypoints).last_hidden_state[:, 0]
+            B, T, J, P = skeleton_keypoints.shape
+            assert P == 2
+            skeleton_keypoints = skeleton_keypoints.view(B, T, J * P)
+            skeleton_keypoints = self.skel_proj(skeleton_keypoints)
+            skel_output = self.skel_encoder(input_embeds=skeleton_keypoints).last_hidden_state[:, 0]
             skel_feat = self.skel_head(skel_output)
             features.append(skel_feat)
             weights.append(self.modality_weights[2])
@@ -138,11 +144,16 @@ class SignClassificationLightning(L.LightningModule):
         logits = self.classifier(fused)
         return logits
             
+    def pad_batch():
+        pass
+        #TODO implement frame padding
 
     def training_step(self, batch, batch_idx):
         pixel_values = batch.get("pixel_values")
         depth_values = batch.get("depth_values")
         skel_keypoints = batch.get("skeleton_keypoints")
+        #TODO implement frame padding for skeleton keypoints
+
         labels = batch["labels"]
 
         assert any([pixel_values is not None, depth_values is not None, skel_keypoints is not None])
@@ -168,6 +179,8 @@ class SignClassificationLightning(L.LightningModule):
         pixel_values = batch.get("pixel_values")
         depth_values = batch.get("depth_values")
         skel_keypoints = batch.get("skeleton_keypoints")
+        #TODO implement frame padding for skeleton keypoints
+
         labels = batch["labels"]
 
         assert any([pixel_values is not None, depth_values is not None, skel_keypoints is not None])
@@ -241,6 +254,8 @@ class SignClassificationLightning(L.LightningModule):
         pixel_values = batch.get("pixel_values")
         depth_values = batch.get("depth_values")
         skel_keypoints = batch.get("skeleton_keypoints")
+        #TODO implement frame padding for skeleton keypoints
+        
         labels = batch["labels"]
 
         assert any([pixel_values is not None, depth_values is not None, skel_keypoints is not None])
@@ -278,22 +293,22 @@ class SignClassificationLightning(L.LightningModule):
             },
             {
                 "params": self.skel_encoder.parameters(),
-                "lr": self.config["new_learning_rate"],
+                "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             },
             {
                 "params": self.skel_head.parameters(),
-                "lr": self.config["new_learning_rate"],
+                "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             },
             {
                 "params": [self.modality_weights],
-                "lr": self.config["new_learning_rate"],
+                "lr": self.config["class_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             },
             {
                 "params": self.classifier.parameters(),
-                "lr": self.config["new_learning_rate"],
+                "lr": self.config["class_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             }
         ])

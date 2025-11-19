@@ -10,7 +10,7 @@
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user thebrendanhatch@gmail.com
 #SBATCH --output /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_%x.out
-#SBATCH --job-name=rgb+d_train
+#SBATCH --job-name=rgb+s_train
 #SBATCH --qos=dw87
 
 export TRANSFORMERS_OFFLINE=1
@@ -22,7 +22,7 @@ python src/clean_slurm_outputs.py
 nvidia-smi
 
 srun python src/train.py \
-    -c configs/rgb+d.yaml \
+    -c configs/rgb+s.yaml \
     -m TRAIN
 
 python src/clean_slurm_outputs.py

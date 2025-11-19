@@ -11,6 +11,8 @@ from torch.utils.data import DataLoader
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor, Callback
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
+import optuna
+from optuna.integration import PyTorchLightningPruningCallback
 from pytorch_lightning.utilities import rank_zero_info, rank_zero_only
 from transformers import VideoMAEImageProcessor, VideoMAEConfig
 from sklearn.metrics import classification_report
@@ -20,23 +22,28 @@ from lightning_asl import SignClassificationLightning
 
 video_mae_config = VideoMAEConfig()
 
-def train(config):
+def train(config, trial=None):
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     print("WORLD_SIZE:", world_size, "RANK:", os.environ.get("RANK"))
+    print("RANK (rank_zero_only.rank): ", rank_zero_only.rank)
 
     L.seed_everything(config["seed"], workers=True)
 
     # save dir
     save_dir = config["save"]
+    if trial is not None:
+        save_dir = save_dir + f"_trial_{trial}"
     checkpoints_dir = os.path.join(save_dir, "checkpoints")
     logs_dir = os.path.join(save_dir, "logs")
     tb_dir = os.path.join(save_dir, "tb")
     # if int(os.environ.get("RANK", 0)) == 0:
     if rank_zero_only.rank == 0:
         if os.path.exists(save_dir):
-            rank_zero_info(f"deleting {save_dir}")
+            # rank_zero_info(f"deleting {save_dir}")
+            print(f"deleting {save_dir}")
             shutil.rmtree(save_dir)
-        rank_zero_info(f"creating {save_dir}")
+        # rank_zero_info(f"creating {save_dir}")
+        print(f"creating {save_dir}")
         os.mkdir(save_dir)
         os.mkdir(checkpoints_dir)
         os.mkdir(logs_dir)
@@ -83,8 +90,15 @@ def train(config):
         lr_monitor,
         print_callback
     ]
+    if trial is not None:
+        pruning_callback = PyTorchLightningPruningCallback(
+            trial,
+            monitor="val_acc"
+        )
+        train_callbacks.append(pruning_callback)
     logger = CSVLogger(save_dir=logs_dir)
     tb_logger = TensorBoardLogger(save_dir=tb_dir)
+    
 
     # set parallelization
     if config["n_gpus"] > 1:
@@ -103,16 +117,19 @@ def train(config):
         logger=[logger, tb_logger],
         deterministic=True,
         strategy=strategy,
-        precision="16-mixed"
-        # gradient_clip_val=config["gradient_clip_val"]
+        precision="16-mixed",
+        gradient_clip_val=config["gradient_clip_val"]
     )
 
     # train :)
-    trainer.fit(
-        lightning_model,
-        train_dataloader,
-        val_dataloader
-    )
+    try:
+        trainer.fit(
+            lightning_model,
+            train_dataloader,
+            val_dataloader
+        )
+    except optuna.exceptions.TrialPruned:
+        raise
 
     val_acc = trainer.callback_metrics["val_acc"]
     assert isinstance(val_acc, torch.Tensor)
@@ -274,6 +291,8 @@ def read_config(f):
         config = yaml.safe_load(inf)
     config["pretrained_learning_rate"] = float(config["pretrained_learning_rate"])
     config["new_learning_rate"] = float(config["new_learning_rate"])
+    config["skel_learning_rate"] = float(config["skel_learning_rate"])
+    config["class_learning_rate"] = float(config["class_learning_rate"])
     config["warmup_steps"] = round(0.05 * config["max_steps"])
     rank_zero_info(f"CONFIG: {f}")
     for k, v in config.items():

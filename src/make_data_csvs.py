@@ -1,6 +1,7 @@
 import argparse
 import os
 import csv
+from tqdm import tqdm
 
 def make_csvs(
     d_path,
@@ -13,7 +14,7 @@ def make_csvs(
     skel_dir_path = d_path + "_skel"
     GET_SKEL = os.path.exists(skel_dir_path)
 
-    for f in os.listdir(d_path):
+    for f in tqdm(os.listdir(d_path)):
         assert any([
             f.endswith("_color.mp4"),
             f.endswith("_depth.mp4")

@@ -1,4 +1,4 @@
-save: /home/hatch5o6/nobackup/archive/CS650R/asl/rgb+d
+save: /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/models/rgb+d+s
 test_checkpoint: null
 modalities: ["rgb", "depth", "skeleton"]
 
@@ -14,6 +14,8 @@ device: cuda
 
 pretrained_learning_rate: 5e-05
 new_learning_rate: 1e-04
+skel_learning_rate: 1e-04
+class_learning_rate: 1e-04
 weight_decay: 0.01
 
 batch_size: 32
@@ -34,3 +36,5 @@ bert_hidden_dim: 256
 bert_att_heads: 4
 bert_intermediate_size: 512
 classifier_dropout: 0.1
+
+gradient_clip_val: 1.0

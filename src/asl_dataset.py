@@ -50,10 +50,12 @@ class RGBDSkel_Dataset(Dataset):
     #     return list(frames), total_frames
 
     def _load_skeleton(self, path):
+        #TODO (Coulson) edit Nan numbers to coordinate outside grid boundaries (or whatever is standard practice)
+        #TODO (Coulson) keep only x, y values (drop depth and model values)
         keypoints = np.load(path)
 
         total_frames = keypoints.shape[0]
-        indices = torch.linspace(0, total_frames -1, self.num_frames).long()
+        indices = torch.linspace(0, total_frames - 1, self.num_frames).long()
         sampled = keypoints[indices]
 
         return torch.tensor(sampled, dtype=torch.float32), total_frames

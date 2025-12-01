@@ -7,6 +7,7 @@ from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import List, Tuple
 
+
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='MediaPipe Landmark Extraction')
 parser.add_argument('--input_path', required=True, help='Input folder containing MP4 files')
@@ -18,6 +19,7 @@ parser.add_argument('--num_workers', type=int, default=None,
 parser.add_argument('--force', action='store_true',
                     help='Force re-processing of videos even if output already exists')
 args = parser.parse_args()
+
 
 mp_holistic = mp.solutions.holistic
 
@@ -108,26 +110,6 @@ def process_video_extract_landmarks(input_path, output_npy_path):
     # Stack all frames into a single numpy array
     all_frames_np = np.stack(all_frames)
     np.save(output_npy_path, all_frames_np)
-    print(f"Saved numpy: {output_npy_path}")
-
-if args.mode == 'display':
-    process_video_display(args.input_path)
-elif args.mode == 'extract':
-    input_folder = args.input_path
-    output_folder = args.output_path
-    os.makedirs(output_folder, exist_ok=True)
-    for filename in os.listdir(input_folder):
-        assert filename.endswith("_color.mp4") or filename.endswith("_depth.mp4")
-        if filename.endswith("_depth.mp4"): continue
-        if filename.lower().endswith('.mp4'):
-            input_path = os.path.join(input_folder, filename)
-            base_filename = os.path.splitext(filename)[0]
-            output_npy_path = os.path.join(output_folder, f"{base_filename}_landmarks.npy")
-            print(f"Processing: {filename}")
-            if not os.path.exists(output_npy_path):
-                process_video_extract_landmarks(input_path, output_npy_path)
-                print(f"Completed: {filename}")
-    print("All processing complete.")
     print(f"✓ Saved: {output_npy_path}")
     return output_npy_path
 
@@ -148,9 +130,9 @@ def process_single_video(video_info: Tuple[str, str, bool]) -> str:
         
         # If forcing reprocess, indicate that we're overwriting
         if os.path.exists(output_npy_path) and force_reprocess:
-            print(f"↻ Re-processing (force flag set): {input_path}")
+            print(f"↻ Re-processing (force flag set): {os.path.basename(input_path)}")
         else:
-            print(f"→ Processing: {input_path}")
+            print(f"→ Processing: {os.path.basename(input_path)}")
         
         result = process_video_extract_landmarks(input_path, output_npy_path)
         return result
@@ -182,8 +164,17 @@ def find_all_videos(input_folder: str) -> List[str]:
     # Find all MP4 files (case-insensitive)
     mp4_files = list(input_path.glob('*.mp4')) + list(input_path.glob('*.MP4'))
     
-    # Convert to strings and sort
-    video_paths = sorted([str(f) for f in mp4_files])
+    # Filter out depth videos if needed
+    video_paths = []
+    for f in mp4_files:
+        filename = f.name
+        # Skip depth videos
+        if filename.endswith("_depth.mp4"):
+            continue
+        video_paths.append(str(f))
+    
+    # Sort the paths
+    video_paths = sorted(video_paths)
     
     return video_paths
 
@@ -214,8 +205,8 @@ def create_video_task_list(video_paths: List[str],
         video_file = Path(video_path)
         base_filename = video_file.stem
         
-        # Create output .npy filename (matching the video name)
-        output_npy_path = output_path / f"{base_filename}.npy"
+        # Create output .npy filename with _landmarks suffix
+        output_npy_path = output_path / f"{base_filename}_landmarks.npy"
         
         # Check if output already exists
         if output_npy_path.exists() and not force_reprocess:

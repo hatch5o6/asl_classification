@@ -8,6 +8,7 @@ import torch
 import numpy as np
 from transformers import VideoMAEImageProcessor
 import os
+import pandas as pd
 
 class RGBDSkel_Dataset(Dataset):
     def __init__(
@@ -49,10 +50,43 @@ class RGBDSkel_Dataset(Dataset):
     #     frames = np.repeat(frames, 3, axis=-1)
     #     return list(frames), total_frames
 
+
+    def interpolate_with_gaps(pose_data, max_gap=3, sentinel=999.0):
+        pose_data = pose_data.copy()
+        T, L, F = pose_data.shape
+
+        for lm in range(L):
+            for feat in range(F):
+                s = pd.Series(pose_data[:, lm, feat])
+
+                if s.isna().any():
+                    # only fill NaN runs of length <= max_gap
+                    s = s.interpolate(
+                        method='linear',
+                        limit=max_gap,
+                        limit_direction='both'
+                    )
+                    # very long gaps remain NaN → turn them into sentinel
+                    s = s.fillna(sentinel)
+
+                pose_data[:, lm, feat] = s.values
+
+        return pose_data
+
+
     def _load_skeleton(self, path):
         #TODO (Coulson) edit Nan numbers to coordinate outside grid boundaries (or whatever is standard practice)
+
         #TODO (Coulson) keep only x, y values (drop depth and model values)
         keypoints = np.load(path)
+
+        # filter last dimension to only x, y values
+        keypoints = keypoints[:, :, :2]
+        # should we use interpolation to fill in missing values, should we ?
+        interpolated_keypoints = self.interpolate_with_gaps(keypoints, max_gap=5, sentinel=999.0)
+        keypoints = interpolated_keypoints
+        # change Nan values to 999 (to represent points outside grid boundaries)
+        # keypoints = np.where(np.isnan(keypoints), 999, keypoints)
 
         total_frames = keypoints.shape[0]
         indices = torch.linspace(0, total_frames - 1, self.num_frames).long()

@@ -39,15 +39,6 @@ class RGBDSkel_Dataset(Dataset):
         frames = vr.get_batch(indices).asnumpy()
         assert frames.shape[-1] == assert_frames, f"frames.shape: {frames.shape}, assert_frames: {assert_frames}"
         return list(frames), total_frames
-    
-    # def _load_depth(self, path):
-    #     vr = VideoReader(path, ctx=cpu(0))
-    #     total_frames = len(vr)
-    #     indices = torch.linspace(0, total_frames - 1, self.num_frames).long()
-    #     frames = vr.get_batch(indices).asnumpy()
-    #     assert frames.shape[-1] == 1
-    #     frames = np.repeat(frames, 3, axis=-1)
-    #     return list(frames), total_frames
 
     def _load_skeleton(self, path):
         #TODO (Coulson) edit Nan numbers to coordinate outside grid boundaries (or whatever is standard practice)

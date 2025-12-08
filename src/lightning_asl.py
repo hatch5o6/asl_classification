@@ -11,6 +11,14 @@ from transformers import VideoMAEModel, VideoMAEImageProcessor, VideoMAEConfig
 from transformers import BertConfig, BertModel
 from joint_pruning import JointPruningModule, l0_penalty
 
+def sort_modalities(x):
+    assert x in ["rgb", "depth", "skeleton"]
+    if x == "rgb":
+        return 0
+    elif x == "depth":
+        return 1
+    elif x == "skeleton":
+        return 2
 
 class SignClassificationLightning(L.LightningModule):
     def __init__(
@@ -21,6 +29,13 @@ class SignClassificationLightning(L.LightningModule):
         super().__init__()
         self.config = config
 
+        assert isinstance(self.config["modalities"], list)
+        self.config["modalities"].sort(key=sort_modalities)
+        for mod in self.config["modalities"]:
+            assert mod in ["rgb", "depth", "skeleton"]
+        if "depth" in self.config["modalities"]:
+            assert "rgb" in self.config["modalities"]
+
         #----------------------------- CONFIGS -----------------------------#
         # RGB config
         video_mae_config = VideoMAEConfig.from_pretrained(pretrained_model)
@@ -30,20 +45,23 @@ class SignClassificationLightning(L.LightningModule):
         print("\n\n")
         print(f"RGB Config (VideoMAE from {pretrained_model}):\n________________________________________")
         self.print_config(video_mae_config)
+        if "rgb" not in self.config["modalities"]:
+            print(f"HOWEVER, RGB Config (VideoMAE from {pretrained_model})\n\tWILL NOT BE USED BECAUSE THE RGB ENCODER WILL NOT BE INITIALIZED. THIS CONFIG IS LIKELY BEING USED TO SET VALUES IN SKELETON OR DEPTH ENCODER CONFIGS.\n\n")
 
         # Depth config
-        depth_config = VideoMAEConfig.from_pretrained(pretrained_model)
-        depth_config.num_frames = video_mae_config.num_frames
-        depth_config.image_size = self.config["depth_image_size"]
-        depth_config.hidden_size = self.config["depth_hidden_dim"]
-        depth_config.num_hidden_layers = self.config["depth_hidden_layers"]
-        depth_config.num_attention_heads = self.config["depth_att_heads"]
-        depth_config.intermediate_size = self.config["depth_intermediate_size"]
-        depth_config.patch_size = self.config["depth_patch_size"]
-        # depth_config.num_channels = 1
-        depth_config.attn_implementation = "sdpa"
-        print("Depth (VideoMAE) config:\n________________________________________")
-        self.print_config(depth_config)
+        if "depth" in self.config["modalities"]:
+            depth_config = VideoMAEConfig.from_pretrained(pretrained_model)
+            depth_config.num_frames = video_mae_config.num_frames
+            depth_config.image_size = self.config["depth_image_size"]
+            depth_config.hidden_size = self.config["depth_hidden_dim"]
+            depth_config.num_hidden_layers = self.config["depth_hidden_layers"]
+            depth_config.num_attention_heads = self.config["depth_att_heads"]
+            depth_config.intermediate_size = self.config["depth_intermediate_size"]
+            depth_config.patch_size = self.config["depth_patch_size"]
+            # depth_config.num_channels = 1
+            depth_config.attn_implementation = "sdpa"
+            print("Depth (VideoMAE) config:\n________________________________________")
+            self.print_config(depth_config)
 
         #Skeleton pruning layer
         self.joint_pruning = JointPruningModule(
@@ -52,17 +70,18 @@ class SignClassificationLightning(L.LightningModule):
         )
 
         # Skeleton config
-        bert_config = BertConfig(
-            hidden_size=self.config["bert_hidden_dim"],
-            num_hidden_layers=self.config["bert_hidden_layers"],
-            num_attention_heads=self.config["bert_att_heads"],
-            intermediate_size=self.config["bert_intermediate_size"],
-            max_position_embeddings=video_mae_config.num_frames,
-            vocab_size=1,
-            type_vocab_size=1
-        )
-        print("Skeleton (BERT) config:\n________________________________________")
-        self.print_config(bert_config)
+        if "skeleton" in self.config["modalities"]:
+            bert_config = BertConfig(
+                hidden_size=self.config["bert_hidden_dim"],
+                num_hidden_layers=self.config["bert_hidden_layers"],
+                num_attention_heads=self.config["bert_att_heads"],
+                intermediate_size=self.config["bert_intermediate_size"],
+                max_position_embeddings=video_mae_config.num_frames,
+                vocab_size=1,
+                type_vocab_size=1
+            )
+            print("Skeleton (BERT) config:\n________________________________________")
+            self.print_config(bert_config)
 
         #----------------------------- LOSS -----------------------------#
         # Loss function
@@ -70,27 +89,39 @@ class SignClassificationLightning(L.LightningModule):
         self.loss_fn = CrossEntropyLoss(weight=class_weights_tensor)
 
         #----------------------------- TRAINABLE PARAMETERS -----------------------------#
+        next_idx = 0
         # RGB encoder
-        self.rgb_encoder = VideoMAEModel.from_pretrained(
-            pretrained_model,
-            config=video_mae_config
-        )
-        self.rgb_encoder.train()
-        self.rgb_head = torch.nn.Linear(self.rgb_encoder.config.hidden_size, self.config["fusion_dim"])
+        if "rgb" in self.config["modalities"]:
+            self.rgb_mod_idx = next_idx
+            next_idx += 1
+            self.rgb_encoder = VideoMAEModel.from_pretrained(
+                pretrained_model,
+                config=video_mae_config
+            )
+            self.rgb_encoder.train()
+            self.rgb_head = torch.nn.Linear(self.rgb_encoder.config.hidden_size, self.config["fusion_dim"])
 
         # Depth encoder
-        self.depth_encoder = VideoMAEModel(depth_config)
-        self.depth_encoder.train()
-        self.depth_head = torch.nn.Linear(self.depth_encoder.config.hidden_size, self.config["fusion_dim"])
+        if "depth" in self.config["modalities"]:
+            self.depth_mod_idx = next_idx
+            next_idx += 1
+            self.depth_encoder = VideoMAEModel(depth_config)
+            self.depth_encoder.train()
+            self.depth_head = torch.nn.Linear(self.depth_encoder.config.hidden_size, self.config["fusion_dim"])
 
         # Skeleton encoder
-        self.skel_encoder = BertModel(bert_config)
-        self.skel_proj = torch.nn.Linear(config["num_pose_points"] * 2, self.skel_encoder.config.hidden_size)
-        self.skel_encoder.train()
-        self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
+        if "skeleton" in self.config["modalities"]:
+            self.skel_mod_idx = next_idx
+            next_idx += 1
+            self.skel_encoder = BertModel(bert_config)
+            self.skel_proj = torch.nn.Linear(config["num_pose_points"] * 2, self.skel_encoder.config.hidden_size)
+            self.skel_encoder.train()
+            self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
 
         # modality weights [rgb, depth, skeleton]
-        self.modality_weights = torch.nn.Parameter(torch.ones(3))
+            
+        assert next_idx == len(self.config["modalities"])
+        self.modality_weights = torch.nn.Parameter(torch.ones(len(self.config["modalities"])))
 
         # Classifier
         num_classes = self._get_num_classes(self.config["class_id_csv"])
@@ -120,17 +151,19 @@ class SignClassificationLightning(L.LightningModule):
 
         # RGB
         if pixel_values is not None:
-            rgb_output = self.rgb_encoder(pixel_values).last_hidden_state[:, 0]
+            # rgb_output = self.rgb_encoder(pixel_values).last_hidden_state[:, 0]
+            rgb_output = self.rgb_encoder(pixel_values).last_hidden_state.mean(dim=1)
             rgb_feat = self.rgb_head(rgb_output)
             features.append(rgb_feat)
-            weights.append(self.modality_weights[0])
+            weights.append(self.modality_weights[self.rgb_mod_idx])
         
         # Depth
         if depth_values is not None:
-            depth_output = self.depth_encoder(depth_values).last_hidden_state[:, 0]
+            # depth_output = self.depth_encoder(depth_values).last_hidden_state[:, 0]
+            depth_output = self.depth_encoder(depth_values).last_hidden_state.mean(dim=1)
             depth_feat = self.depth_head(depth_output)
             features.append(depth_feat)
-            weights.append(self.modality_weights[1])
+            weights.append(self.modality_weights[self.depth_mod_idx])
             
         # Skeleton
         if skeleton_keypoints is not None:
@@ -139,10 +172,10 @@ class SignClassificationLightning(L.LightningModule):
             skel_keypoints = self.joint_pruning(skeleton_keypoints)
             skeleton_keypoints = skeleton_keypoints.view(B, T, J * P)
             skeleton_keypoints = self.skel_proj(skeleton_keypoints)
-            skel_output = self.skel_encoder(input_embeds=skeleton_keypoints).last_hidden_state[:, 0]
+            skel_output = self.skel_encoder(inputs_embeds=skeleton_keypoints).last_hidden_state[:, 0]
             skel_feat = self.skel_head(skel_output)
             features.append(skel_feat)
-            weights.append(self.modality_weights[2])
+            weights.append(self.modality_weights[self.skel_mod_idx])
 
         # Fuse modalitites
         weights = torch.softmax(torch.stack(weights), dim=0)
@@ -151,16 +184,11 @@ class SignClassificationLightning(L.LightningModule):
         # Classify
         logits = self.classifier(fused)
         return logits
-            
-    def pad_batch():
-        pass
-        #TODO implement frame padding
 
     def training_step(self, batch, batch_idx):
         pixel_values = batch.get("pixel_values")
         depth_values = batch.get("depth_values")
         skel_keypoints = batch.get("skeleton_keypoints")
-        #TODO implement frame padding for skeleton keypoints
 
         labels = batch["labels"]
 
@@ -192,7 +220,6 @@ class SignClassificationLightning(L.LightningModule):
         pixel_values = batch.get("pixel_values")
         depth_values = batch.get("depth_values")
         skel_keypoints = batch.get("skeleton_keypoints")
-        #TODO implement frame padding for skeleton keypoints
 
         labels = batch["labels"]
 
@@ -267,7 +294,6 @@ class SignClassificationLightning(L.LightningModule):
         pixel_values = batch.get("pixel_values")
         depth_values = batch.get("depth_values")
         skel_keypoints = batch.get("skeleton_keypoints")
-        #TODO implement frame padding for skeleton keypoints
         
         labels = batch["labels"]
 
@@ -283,8 +309,9 @@ class SignClassificationLightning(L.LightningModule):
         return preds, labels
     
     def configure_optimizers(self):
-        optimizer = optim.AdamW([
-            {
+        optimizer_configs = []
+        if "rgb" in self.config["modalities"]:
+            optimizer_configs += [{
                 "params": self.rgb_encoder.parameters(), 
                 "lr": self.config["pretrained_learning_rate"], 
                 "weight_decay": self.config["weight_decay"]
@@ -293,8 +320,9 @@ class SignClassificationLightning(L.LightningModule):
                 "params": self.rgb_head.parameters(),
                 "lr": self.config["new_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
-            },
-            {
+            }]
+        if "depth" in self.config["modalities"]:
+            optimizer_configs += [{
                 "params": self.depth_encoder.parameters(),
                 "lr": self.config["new_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
@@ -303,8 +331,9 @@ class SignClassificationLightning(L.LightningModule):
                 "params": self.depth_head.parameters(),
                 "lr": self.config["new_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
-            },
-            {
+            }]
+        if "skeleton" in self.config["modalities"]:
+            optimizer_configs += [{
                 "params": self.skel_encoder.parameters(),
                 "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
@@ -318,20 +347,20 @@ class SignClassificationLightning(L.LightningModule):
                 "params": [self.joint_pruning.joint_logits],
                 "lr": self.config["skel_learning_rate"],
                 "weight_decay": 0.0
-            },
-            {
-                "params": [self.modality_weights],
-                "lr": self.config["class_learning_rate"],
-                "weight_decay": self.config["weight_decay"]
-            },
-            {
-                "params": self.classifier.parameters(),
-                "lr": self.config["class_learning_rate"],
-                "weight_decay": self.config["weight_decay"]
-            }
-        ])
+            }]
+        optimizer_configs += [{
+            "params": [self.modality_weights],
+            "lr": self.config["class_learning_rate"],
+            "weight_decay": self.config["weight_decay"]
+        },
+        {
+            "params": self.classifier.parameters(),
+            "lr": self.config["class_learning_rate"],
+            "weight_decay": self.config["weight_decay"]
+        }]
 
-        
+        optimizer = optim.AdamW(optimizer_configs)
+
         lr_lambda = get_linear_schedule_with_warmup(
             num_warmup_steps=self.config["warmup_steps"],
             num_training_steps=self.config["max_steps"]

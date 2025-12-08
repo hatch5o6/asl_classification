@@ -42,7 +42,7 @@ class RGBDSkel_Dataset(Dataset):
         return list(frames), total_frames
 
 
-    def interpolate_with_gaps(pose_data, max_gap=3, sentinel=999.0):
+    def interpolate_with_gaps(self, pose_data, max_gap=3, sentinel=999.0):
         pose_data = pose_data.copy()
         T, L, F = pose_data.shape
 

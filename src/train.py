@@ -22,22 +22,31 @@ from lightning_asl import SignClassificationLightning
 
 video_mae_config = VideoMAEConfig()
 
-def train(config, trial=None):
+def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     print("WORLD_SIZE:", world_size, "RANK:", os.environ.get("RANK"))
     print("RANK (rank_zero_only.rank): ", rank_zero_only.rank)
+
+    rank_zero_info(f"TRAINING - CONFIG:")
+    for k, v in config.items():
+        rank_zero_info(f"\t-{k}=`{v}`, {type(v)}")
+    rank_zero_info("\n\n")
+    rank_zero_info(f"limit_train_batches={limit_train_batches}")
+    rank_zero_info(f"additional_callbacks={additional_callbacks}")
 
     L.seed_everything(config["seed"], workers=True)
 
     # save dir
     save_dir = config["save"]
     if trial is not None:
-        save_dir = save_dir + f"_trial_{trial}"
+        save_dir = save_dir + f"_trial_{trial.number}_{trial.study.study_name}_{trial.datetime_start}"
     checkpoints_dir = os.path.join(save_dir, "checkpoints")
     logs_dir = os.path.join(save_dir, "logs")
     tb_dir = os.path.join(save_dir, "tb")
     # if int(os.environ.get("RANK", 0)) == 0:
     if rank_zero_only.rank == 0:
+        parent_dir = "/".join(save_dir.split("/")[:-1])
+        os.makedirs(parent_dir, exist_ok=True)
         if os.path.exists(save_dir):
             # rank_zero_info(f"deleting {save_dir}")
             print(f"deleting {save_dir}")
@@ -96,6 +105,7 @@ def train(config, trial=None):
             monitor="val_acc"
         )
         train_callbacks.append(pruning_callback)
+    train_callbacks += additional_callbacks
     logger = CSVLogger(save_dir=logs_dir)
     tb_logger = TensorBoardLogger(save_dir=tb_dir)
     
@@ -118,7 +128,8 @@ def train(config, trial=None):
         deterministic=True,
         strategy=strategy,
         precision="16-mixed",
-        gradient_clip_val=config["gradient_clip_val"]
+        gradient_clip_val=config["gradient_clip_val"],
+        limit_train_batches=limit_train_batches
     )
 
     # train :)
@@ -146,6 +157,11 @@ def test(config):
     print("WORLD_SIZE:", world_size)
 
     L.seed_everything(config["seed"], workers=True)
+
+    rank_zero_info(f"TESTING - CONFIG:")
+    for k, v in config.items():
+        rank_zero_info(f"\t-{k}=`{v}`, {type(v)}")
+    rank_zero_info("\n\n")
 
     # save_dir
     save_dir = config["save"]
@@ -287,17 +303,19 @@ class PrintCallback(Callback):
 
 
 def read_config(f):
+    print("READING CONFIG:", f)
     with open(f) as inf:
         config = yaml.safe_load(inf)
+    config["batch_size"] = round(config["effective_batch_size"] / config["n_gpus"])
     config["pretrained_learning_rate"] = float(config["pretrained_learning_rate"])
     config["new_learning_rate"] = float(config["new_learning_rate"])
     config["skel_learning_rate"] = float(config["skel_learning_rate"])
     config["class_learning_rate"] = float(config["class_learning_rate"])
     config["warmup_steps"] = round(0.05 * config["max_steps"])
-    rank_zero_info(f"CONFIG: {f}")
-    for k, v in config.items():
-        rank_zero_info(f"\t-{k}=`{v}`, {type(v)}")
-    rank_zero_info("\n\n")
+    # rank_zero_info(f"CONFIG: {f}")
+    # for k, v in config.items():
+    #     rank_zero_info(f"\t-{k}=`{v}`, {type(v)}")
+    # rank_zero_info("\n\n")
     return config
 
 def get_args():

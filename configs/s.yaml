@@ -18,7 +18,7 @@ skel_learning_rate: 1e-04
 class_learning_rate: 1e-04
 weight_decay: 0.01
 
-batch_size: 32
+effective_batch_size: 32
 early_stop: 10
 save_top_k: 10
 val_interval: 0.25 # fraction of epoch
@@ -35,6 +35,7 @@ bert_hidden_layers: 4
 bert_hidden_dim: 256
 bert_att_heads: 4
 bert_intermediate_size: 512
+num_pose_points: 543 # can edit
 classifier_dropout: 0.1
 
 gradient_clip_val: 1.0

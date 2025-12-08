@@ -9,6 +9,7 @@ from torch.optim.lr_scheduler import LambdaLR
 from pytorch_lightning.utilities import rank_zero_info
 from transformers import VideoMAEModel, VideoMAEImageProcessor, VideoMAEConfig
 from transformers import BertConfig, BertModel
+from joint_pruning import JointPruningModule, l0_penalty
 
 
 class SignClassificationLightning(L.LightningModule):
@@ -43,6 +44,12 @@ class SignClassificationLightning(L.LightningModule):
         depth_config.attn_implementation = "sdpa"
         print("Depth (VideoMAE) config:\n________________________________________")
         self.print_config(depth_config)
+
+        #Skeleton pruning layer
+        self.joint_pruning = JointPruningModule(
+            num_joints=self.config["num_pose_points"],
+            init_keep_prob=0.9
+        )
 
         # Skeleton config
         bert_config = BertConfig(
@@ -129,6 +136,7 @@ class SignClassificationLightning(L.LightningModule):
         if skeleton_keypoints is not None:
             B, T, J, P = skeleton_keypoints.shape
             assert P == 2
+            skel_keypoints = self.joint_pruning(skeleton_keypoints)
             skeleton_keypoints = skeleton_keypoints.view(B, T, J * P)
             skeleton_keypoints = self.skel_proj(skeleton_keypoints)
             skel_output = self.skel_encoder(input_embeds=skeleton_keypoints).last_hidden_state[:, 0]
@@ -163,6 +171,11 @@ class SignClassificationLightning(L.LightningModule):
             skeleton_keypoints=skel_keypoints
         )
         loss = self.loss_fn(logits, labels)
+
+        loss = loss + l0_penalty(self.joint_pruning, weight=.001)
+        summary = self.joint_pruning.get_summary()
+        self.log("pruning_ratio", summary["pruning_ratio"], on_epoch=True)
+        self.log("num_active_joints", summary["num_active"], on_epoch=True)
         self.log(
             "train_loss", 
             loss, 
@@ -300,6 +313,11 @@ class SignClassificationLightning(L.LightningModule):
                 "params": self.skel_head.parameters(),
                 "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": [self.joint_pruning.joint_logits],
+                "lr": self.config["skel_learning_rate"],
+                "weight_decay": 0.0
             },
             {
                 "params": [self.modality_weights],

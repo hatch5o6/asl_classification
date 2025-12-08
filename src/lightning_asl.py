@@ -329,6 +329,11 @@ class SignClassificationLightning(L.LightningModule):
                 "params": self.skel_head.parameters(),
                 "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": [self.joint_pruning.joint_logits],
+                "lr": self.config["skel_learning_rate"],
+                "weight_decay": 0.0
             }]
         optimizer_configs += [{
             "params": [self.modality_weights],

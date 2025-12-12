@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class JointPruningLayer(nn.Module):
+class JointPruningModule(nn.Module):
     """
     Learnable joint pruning using Gumbel-Softmax.
     
@@ -13,7 +13,7 @@ class JointPruningLayer(nn.Module):
     During inference: hard selection (binary 0/1 mask)
     
     Example:
-        >>> pruner = JointPruningLayer(num_joints=42)
+        >>> pruner = JointPruningModule(num_joints=543)
         >>> skeleton = torch.randn(4, 16, 532, 2)  # (B, T, J, P)
         >>> pruned = pruner(skeleton)
         >>> print(f"Pruning ratio: {pruner.get_pruning_ratio():.1%}")
@@ -138,13 +138,13 @@ class JointPruningLayer(nn.Module):
         }
 
 
-def l0_penalty(pruning_layer: JointPruningLayer, weight: float = 0.001) -> torch.Tensor:
+def l0_penalty(pruning_layer: JointPruningModule, weight: float = 0.001) -> torch.Tensor:
     """
     Compute L0 regularization loss to encourage sparsity.
     
     Higher weight -> more aggressive pruning
     
-    Args: pruning_layer: JointPruningLayer instance
+    Args: pruning_layer: JointPruningModule instance
           weight: Scaling factor for the penalty
         
     Returns: Scalar loss term
@@ -157,14 +157,14 @@ def l0_penalty(pruning_layer: JointPruningLayer, weight: float = 0.001) -> torch
 
 # Example usage / testing
 if __name__ == "__main__":
-    print("JointPruningLayer Example:")
+    print("JointPruningModule Example:")
     print("=" * 60)
     
-    # Create pruning layer for 42 joints (21 per hand)
-    pruner = JointPruningLayer(num_joints=42, init_keep_prob=0.9)
+    # Create pruning layer for 543 joints (21 per hand)
+    pruner = JointPruningModule(num_joints=543, init_keep_prob=0.9)
     
-    # Simulate skeleton data: batch_size=4, frames=16, joints=42, features=2
-    skeleton = torch.randn(4, 16, 42, 2)
+    # Simulate skeleton data: batch_size=4, frames=16, joints=543, features=2
+    skeleton = torch.randn(4, 16, 543, 2)
     
     # Apply pruning
     pruned = pruner(skeleton)

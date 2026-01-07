@@ -118,6 +118,9 @@ class SignClassificationLightning(L.LightningModule):
             self.skel_encoder.train()
             self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
 
+        # New Skeleton encoder [Batch, Frame, Joints, Points]
+        if "skeleton" in self.config["modalities"]:
+            
         # modality weights [rgb, depth, skeleton]
             
         assert next_idx == len(self.config["modalities"])

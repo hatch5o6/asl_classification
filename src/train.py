@@ -86,7 +86,8 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     early_stopping = EarlyStopping(monitor="val_acc", mode="max", patience=config["early_stop"], verbose=True)
     top_k_model_checkpoint = ModelCheckpoint(
         dirpath=checkpoints_dir,
-        filename="epoch={epoch}-step={step}-val_loss={val_loss:.6f}-val_acc={val_acc:.6f}",
+        # filename="epoch={epoch}-step={step}-val_loss={val_loss:.6f}-val_acc={val_acc:.6f}",
+        filename="{epoch}-{step}-{val_loss:.6f}-{val_acc:.6f}",
         save_top_k=config["save_top_k"],
         monitor="val_acc",
         mode="max"
@@ -194,6 +195,7 @@ def test(config):
         checkpoint_to_test = None
         best_val_acc = None
         for f in os.listdir(checkpoints_dir):
+            # val_acc = float(f.split(".ckpt")[0].split("-val_acc=val_acc=")[1])
             val_acc = float(f.split(".ckpt")[0].split("-val_acc=")[1])
             if best_val_acc is None:
                 assert checkpoint_to_test is None
@@ -223,13 +225,24 @@ def test(config):
         lightning_model,
         dataloaders=test_dataloader
     )
+    print("BATCH PREDICTIONS")
+    print(batch_predictions)
 
     predictions = []
+    pred_labels = []
     for b, batch in enumerate(batch_predictions):
-        predictions += batch
+        b_preds, b_labels = batch
+        predictions += b_preds.cpu().tolist()
+        pred_labels += b_labels.cpu().tolist()
+    print("predictions")
+    print(predictions)
+    print("pred labels")
+    print(pred_labels)
     labels, videos = get_labels(test_csv=config["test_csv"])
+    assert pred_labels == labels, f"pred_labels: {pred_labels}::::labels: {labels}"
+    print("pred_labels == labels, as it should :)")
 
-    assert len(predictions) == len(labels) == len(videos)
+    assert len(predictions) == len(labels) == len(videos), f"{len(predictions)}, {len(labels)}, {len(videos)}"
     pred_data = list(zip(videos, labels, predictions))
 
     metrics = calc_metrics(predictions, labels)
@@ -242,9 +255,11 @@ def test(config):
         for vid, lab, pred in pred_data:
             writer.writerow([vid, lab, label_dict[lab], pred, label_dict[pred]])
 
+    print("metrics")
+    print(metrics)
     metrics_out = os.path.join(predictions_dir, checkpoint_to_test.split("/")[-1] + ".metrics.json")
     with open(metrics_out, "w") as outf:
-        outf.write(json.dumps(metrics_out, ensure_ascii=False, indent=2))
+        outf.write(json.dumps(metrics, ensure_ascii=False, indent=2))
 
 
 def calc_metrics(predictions, labels):
@@ -253,7 +268,7 @@ def calc_metrics(predictions, labels):
     acc = (predictions_t == labels_t).float().mean()
 
     report_dict = classification_report(labels, predictions, output_dict=True)
-    report_dict["my_accuracy"] = acc
+    report_dict["my_accuracy"] = acc.item()
     return report_dict
 
     
@@ -261,11 +276,18 @@ def get_labels(test_csv):
     videos = []
     labels = []
     with open(test_csv, newline='') as inf:
+        r = 0
         for row in csv.reader(inf):
-            video, label = tuple(row)
+            if r == 0:
+                assert tuple(row) == ("rgb_path","depth_path","skel_path","label"), f"ROW={tuple(row)}"
+                r += 1
+                continue
+            rgb, depth, skel, label = tuple(row)
+            video = "::::".join((rgb, depth, skel))
             label = int(label)
             videos.append(video)
             labels.append(label)
+            r += 1
     return labels, videos
 
 def get_label_dict(class_csv, lang="EN"):

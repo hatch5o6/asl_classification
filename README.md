@@ -1,4 +1,4 @@
-# Feature Ablation for Turkish Sign Language Classification
+# Learnable Joint Pruning in Isolated Sign Language Recognition
 
 All files are written to be run from inside the root folder of the repo 'asl'. (If yours is called something different, you may need to change some file paths).
 #TODO -- fix this soon.

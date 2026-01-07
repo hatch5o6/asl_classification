@@ -63,12 +63,6 @@ class SignClassificationLightning(L.LightningModule):
             print("Depth (VideoMAE) config:\n________________________________________")
             self.print_config(depth_config)
 
-        #Skeleton pruning layer
-        self.joint_pruning = JointPruningModule(
-            num_joints=self.config["num_pose_points"],
-            init_keep_prob=0.9
-        )
-
         # Skeleton config
         if "skeleton" in self.config["modalities"]:
             bert_config = BertConfig(
@@ -117,6 +111,12 @@ class SignClassificationLightning(L.LightningModule):
             self.skel_proj = torch.nn.Linear(config["num_pose_points"] * 2, self.skel_encoder.config.hidden_size)
             self.skel_encoder.train()
             self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
+            # Skeleton pruning layer
+            if self.config["joint_pruning"] == True:
+                self.joint_pruning = JointPruningModule(
+                    num_joints=self.config["num_pose_points"],
+                    init_keep_prob=self.config["init_keep_probability"]
+                )
 
         # New Skeleton encoder [Batch, Frame, Joints, Points]
         if "skeleton" in self.config["modalities"]:
@@ -172,7 +172,8 @@ class SignClassificationLightning(L.LightningModule):
         if skeleton_keypoints is not None:
             B, T, J, P = skeleton_keypoints.shape
             assert P == 2
-            skel_keypoints = self.joint_pruning(skeleton_keypoints)
+            if self.config["joint_pruning"] == True:
+                skeleton_keypoints = self.joint_pruning(skeleton_keypoints)
             skeleton_keypoints = skeleton_keypoints.view(B, T, J * P)
             skeleton_keypoints = self.skel_proj(skeleton_keypoints)
             skel_output = self.skel_encoder(inputs_embeds=skeleton_keypoints).last_hidden_state[:, 0]
@@ -203,10 +204,12 @@ class SignClassificationLightning(L.LightningModule):
         )
         loss = self.loss_fn(logits, labels)
 
-        loss = loss + l0_penalty(self.joint_pruning, weight=.001)
-        summary = self.joint_pruning.get_summary()
-        self.log("pruning_ratio", summary["pruning_ratio"], on_epoch=True)
-        self.log("num_active_joints", summary["num_active"], on_epoch=True)
+        if "skeleton" in self.config["modalities"] and self.config["joint_pruning"] == True:
+            loss = loss + l0_penalty(self.joint_pruning, weight=.001)
+            summary = self.joint_pruning.get_summary()
+            self.log("pruning_ratio", summary["pruning_ratio"], on_epoch=True)
+            self.log("num_active_joints", summary["num_active"], on_epoch=True)
+
         self.log(
             "train_loss", 
             loss, 
@@ -293,7 +296,7 @@ class SignClassificationLightning(L.LightningModule):
     #     return {"test_loss": loss, "test_acc": acc}
 
 
-    def prediction_step(self, batch, batch_idx):
+    def predict_step(self, batch, batch_idx):
         pixel_values = batch.get("pixel_values")
         depth_values = batch.get("depth_values")
         skel_keypoints = batch.get("skeleton_keypoints")
@@ -337,6 +340,11 @@ class SignClassificationLightning(L.LightningModule):
             }]
         if "skeleton" in self.config["modalities"]:
             optimizer_configs += [{
+                "params": self.skel_proj.parameters(),
+                "lr": self.config["skel_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
                 "params": self.skel_encoder.parameters(),
                 "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
@@ -345,12 +353,13 @@ class SignClassificationLightning(L.LightningModule):
                 "params": self.skel_head.parameters(),
                 "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
-            },
-            {
-                "params": [self.joint_pruning.joint_logits],
-                "lr": self.config["skel_learning_rate"],
-                "weight_decay": 0.0
             }]
+            if self.config["joint_pruning"] == True:
+                optimizer_configs.append({
+                    "params": [self.joint_pruning.joint_logits],
+                    "lr": self.config["skel_learning_rate"],
+                    "weight_decay": 0.0
+                })
         optimizer_configs += [{
             "params": [self.modality_weights],
             "lr": self.config["class_learning_rate"],

@@ -11,11 +11,14 @@
 #SBATCH --mail-user thebrendanhatch@gmail.com
 #SBATCH --output /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_%x.out
 #SBATCH --job-name=rgb+d+s_train
-#SBATCH --qos=dw87
+#SBATCH --qos=matrix
 
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
+
+conda init
+conda activate asl
 
 python src/clean_slurm_outputs.py
 

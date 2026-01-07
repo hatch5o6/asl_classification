@@ -72,7 +72,9 @@ class SignClassificationLightning(L.LightningModule):
                 intermediate_size=self.config["bert_intermediate_size"],
                 max_position_embeddings=video_mae_config.num_frames,
                 vocab_size=1,
-                type_vocab_size=1
+                type_vocab_size=1,
+                attention_dropout=0.0,
+                hidden_dropout_prob=0.0
             )
             print("Skeleton (BERT) config:\n________________________________________")
             self.print_config(bert_config)
@@ -108,7 +110,10 @@ class SignClassificationLightning(L.LightningModule):
             self.skel_mod_idx = next_idx
             next_idx += 1
             self.skel_encoder = BertModel(bert_config)
-            self.skel_proj = torch.nn.Linear(config["num_pose_points"] * 2, self.skel_encoder.config.hidden_size)
+            self.skel_proj = torch.nn.Linear(config["num_pose_points"] * 2, 
+                                             self.skel_encoder.config.hidden_size)
+            #add layer norm
+            self.skel_norm = torch.nn.LayerNorm(self.skel_encoder.config.hidden_size)
             self.skel_encoder.train()
             self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
             # Skeleton pruning layer
@@ -118,8 +123,8 @@ class SignClassificationLightning(L.LightningModule):
                     init_keep_prob=self.config["init_keep_probability"]
                 )
 
-        # New Skeleton encoder [Batch, Frame, Joints, Points]
-        if "skeleton" in self.config["modalities"]:
+        # # New Skeleton encoder [Batch, Frame, Joints, Points]
+        # if "skeleton" in self.config["modalities"]:
             
         # modality weights [rgb, depth, skeleton]
             
@@ -174,10 +179,22 @@ class SignClassificationLightning(L.LightningModule):
             assert P == 2
             if self.config["joint_pruning"] == True:
                 skeleton_keypoints = self.joint_pruning(skeleton_keypoints)
-            skeleton_keypoints = skeleton_keypoints.view(B, T, J * P)
-            skeleton_keypoints = self.skel_proj(skeleton_keypoints)
-            skel_output = self.skel_encoder(inputs_embeds=skeleton_keypoints).last_hidden_state[:, 0]
-            skel_feat = self.skel_head(skel_output)
+
+
+            # old skeleton processing    
+            # skeleton_keypoints = skeleton_keypoints.view(B, T, J * P)
+            # skeleton_keypoints = self.skel_proj(skeleton_keypoints)
+            # skel_output = self.skel_encoder(inputs_embeds=skeleton_keypoints).last_hidden_state
+            # skel_feat = self.skel_head(skel_output)
+
+            # new skeleton processing
+            skel_flat = skeleton_keypoints.view(B, T, J * P)
+            skel_embeds = self.skel_proj(skel_flat)
+            skel_embeds = self.skel_norm(skel_embeds)
+            skel_output = self.skel_encoder(inputs_embeds=skel_embeds).last_hidden_state
+            skel_pooled = skel_output.mean(dim=1)
+
+            skel_feat = self.skel_head(skel_pooled)
             features.append(skel_feat)
             weights.append(self.modality_weights[self.skel_mod_idx])
 
@@ -341,6 +358,11 @@ class SignClassificationLightning(L.LightningModule):
         if "skeleton" in self.config["modalities"]:
             optimizer_configs += [{
                 "params": self.skel_proj.parameters(),
+                "lr": self.config["skel_learning_rate"],
+                "weight_decay": self.config["weight_decay"]
+            },
+            {
+                "params": self.skel_norm.parameters(),
                 "lr": self.config["skel_learning_rate"],
                 "weight_decay": self.config["weight_decay"]
             },

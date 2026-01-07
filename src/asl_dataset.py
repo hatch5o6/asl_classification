@@ -74,9 +74,9 @@ class RGBDSkel_Dataset(Dataset):
         # filter last dimension to only x, y values
         keypoints = keypoints[:, :, :2]
         # should we use interpolation to fill in missing values, should we ?
-        interpolated_keypoints = self.interpolate_with_gaps(keypoints, max_gap=5, sentinel=999.0)
+        interpolated_keypoints = self.interpolate_with_gaps(keypoints, max_gap=5, sentinel=0.0)
         keypoints = interpolated_keypoints
-        # change Nan values to 999 (to represent points outside grid boundaries)
+        # change Nan values to 0 (to represent points outside grid boundaries)
         # keypoints = np.where(np.isnan(keypoints), 999, keypoints)
 
         total_frames = keypoints.shape[0]

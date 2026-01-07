@@ -8,8 +8,8 @@
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH --mail-user thebrendanhatch@gmail.com
-#SBATCH --output /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_%x.out
+#SBATCH --mail-user ccoulson@byu.edu
+#SBATCH --output /home/ccoulson/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_%x.out
 #SBATCH --job-name=s_train
 #SBATCH --qos=matrix
 

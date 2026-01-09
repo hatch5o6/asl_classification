@@ -8,9 +8,9 @@
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH --mail-user hatch5o6@byu.edu
+#SBATCH --mail-user thebrendanhatch@gmail.com
 #SBATCH --output /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_%x.out
-#SBATCH --job-name=s_train
+#SBATCH --job-name=s_jpFalse_train_TSLFormer_config_w_more_frames
 #SBATCH --qos=matrix
 
 export TRANSFORMERS_OFFLINE=1
@@ -25,7 +25,7 @@ python src/clean_slurm_outputs.py
 nvidia-smi
 
 srun python src/train.py \
-    -c configs/s.yaml \
+    -c configs/s_jpFalse_TSLFormer_config_w_more_frames.yaml \
     -m TRAIN
 
 python src/clean_slurm_outputs.py

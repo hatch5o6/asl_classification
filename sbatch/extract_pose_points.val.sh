@@ -6,14 +6,14 @@
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
-#SBATCH --mail-user thebrendanhatch@gmail.com
-#SBATCH --output /home/hatch5o6/CS650R/asl/sbatch/slurm_outputs/%j_%x.out
+#SBATCH --mail-user %u@byu.edu
+#SBATCH --output /home/%u/CS650R/asl/sbatch/slurm_outputs/%j_%x.out
 #SBATCH --job-name=extract_posepoints.val
 #SBATCH --qos=dw87
 
 
 python src/pose_points.py \
-    --input_path /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/AUTSL/val/val \
-    --output_path /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/AUTSL/val/val_skel \
+    --input_path /home/$USER/groups/grp_asl_classification/nobackup/archive/AUTSL/val/val \
+    --output_path /home/$USER/groups/grp_asl_classification/nobackup/archive/AUTSL/val/val_skel \
     --mode extract
     

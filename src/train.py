@@ -61,11 +61,17 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
     modalities = tuple(config["modalities"])
 
+    num_frames = config["num_frames"]
+    if num_frames == "video_mae":
+        num_frames = video_mae_config.num_frames
+    else:
+        assert isinstance(num_frames, int)
+
     # load train dataloader
     train_dataset = RGBDSkel_Dataset(
         annotations=config["train_csv"],
         processor=processor,
-        num_frames=video_mae_config.num_frames,
+        num_frames=num_frames,
         modalities=modalities
     )
     train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
@@ -74,7 +80,7 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     val_dataset = RGBDSkel_Dataset(
         annotations=config["val_csv"],
         processor=processor,
-        num_frames=video_mae_config.num_frames,
+        num_frames=num_frames,
         modalities=modalities
     )
     val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
@@ -181,11 +187,17 @@ def test(config):
     processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
     modalities = tuple(config["modalities"])
 
+    num_frames = config["num_frames"]
+    if num_frames == "video_mae":
+        num_frames = video_mae_config.num_frames
+    else:
+        assert isinstance(num_frames, int)
+
     # load test dataloader
     test_dataset = RGBDSkel_Dataset(
         annotations=config["test_csv"],
         processor=processor,
-        num_frames=video_mae_config.num_frames,
+        num_frames=num_frames,
         modalities=modalities
     )
     test_dataloader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)

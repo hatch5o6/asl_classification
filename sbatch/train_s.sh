@@ -17,10 +17,12 @@ export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
 
+source ~/.bashrc
+
 conda init
 conda activate asl
 
-python src/clean_slurm_outputs.py
+python src/clean_slurm_outputs.py --user "$USER"
 
 nvidia-smi
 
@@ -28,4 +30,4 @@ srun python src/train.py \
     -c configs/s.yaml \
     -m TRAIN
 
-python src/clean_slurm_outputs.py
+python src/clean_slurm_outputs.py --user "$USER"

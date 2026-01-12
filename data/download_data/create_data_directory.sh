@@ -1,5 +1,5 @@
 # set this
-DATA_DIR=/home/hatch5o6/groups/grp_asl_classification/nobackup/archive/AUTSL
+DATA_DIR=/home/$USER/groups/grp_asl_classification/nobackup/archive/AUTSL
 rm -r $DATA_DIR
 
 # don't touch the rest

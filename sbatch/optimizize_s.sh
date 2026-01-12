@@ -28,4 +28,4 @@ python src/optimize_hyperparams.py \
     -n 25 \
     -c configs/s.yaml
 
-python src/clean_slurm_outputs.py
+python src/clean_slurm_outputs.py --user %u

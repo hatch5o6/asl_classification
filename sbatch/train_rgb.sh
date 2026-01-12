@@ -28,4 +28,4 @@ srun python src/train.py \
     -c configs/rgb.yaml \
     -m TRAIN
 
-python src/clean_slurm_outputs.py
+python src/clean_slurm_outputs.py --user %u

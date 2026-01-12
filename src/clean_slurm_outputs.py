@@ -3,13 +3,15 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--top", "-t", type=int, default=1)
+parser.add_argument("--user", "-u", type=str, default="hatch5o6")
 args = parser.parse_args()
 top = args.top
+user = args.user
 
 
 dirs = [
     "sbatch/slurm_outputs",
-    "/home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs"
+    f"/home/{user}/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs"
 ]
 for dir in dirs:
     fs = os.listdir(dir)

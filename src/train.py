@@ -268,7 +268,7 @@ def test(config):
             writer.writerow([vid, lab, label_dict[lab], pred, label_dict[pred]])
 
     print("metrics")
-    print(metrics)
+    print(json.dumps(metrics, ensure_ascii=False, indent=2))
     metrics_out = os.path.join(predictions_dir, checkpoint_to_test.split("/")[-1] + ".metrics.json")
     with open(metrics_out, "w") as outf:
         outf.write(json.dumps(metrics, ensure_ascii=False, indent=2))

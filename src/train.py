@@ -340,6 +340,14 @@ def read_config(f):
     print("READING CONFIG:", f)
     with open(f) as inf:
         config = yaml.safe_load(inf)
+
+    #adjust for user
+    user = os.getenv("USER")
+    if user:
+        config_str = json.dumps(config)
+        config_str = config_str.replace("hatch5o6", user)
+        config = json.loads(config_str)
+
     config["batch_size"] = round(config["effective_batch_size"] / config["n_gpus"])
     config["pretrained_learning_rate"] = float(config["pretrained_learning_rate"])
     config["new_learning_rate"] = float(config["new_learning_rate"])

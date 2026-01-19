@@ -238,23 +238,20 @@ class SignClassificationLightning(L.LightningModule):
             self.log("avg_joint_prob", summary["avg_prob"], on_epoch=True)
             self.log("temperature", temperature, on_step=True)
 
-            # Log full joint probabilities periodically for visualization
-            # Every 1000 steps, log the complete probability distribution
+            # Log joint probability statistics periodically for visualization
+            # Every 1000 steps, log distribution statistics
             if self.global_step % 1000 == 0:
                 joint_probs = self.joint_pruning.get_selection_probs()
-                # Log as histogram for TensorBoard
-                self.logger.experiment.add_histogram(
-                    "joint_probabilities",
-                    joint_probs,
-                    global_step=self.global_step
-                )
-                # Also log top-K most important joints
-                top_k_indices = torch.topk(joint_probs, k=50).indices
-                self.logger.experiment.add_text(
-                    "top_50_joints",
-                    f"Indices: {top_k_indices.cpu().tolist()}",
-                    global_step=self.global_step
-                )
+
+                # Log percentiles to understand probability distribution
+                self.log("joint_prob_p25", torch.quantile(joint_probs, 0.25), on_step=True)
+                self.log("joint_prob_median", torch.median(joint_probs), on_step=True)
+                self.log("joint_prob_p75", torch.quantile(joint_probs, 0.75), on_step=True)
+
+                # Log top-K joint statistics
+                top_50_probs = torch.topk(joint_probs, k=50).values
+                self.log("top_50_avg_prob", top_50_probs.mean(), on_step=True)
+                self.log("top_50_min_prob", top_50_probs.min(), on_step=True)
 
         self.log(
             "train_loss", 

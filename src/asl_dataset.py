@@ -16,12 +16,21 @@ class RGBDSkel_Dataset(Dataset):
         annotations,
         processor: VideoMAEImageProcessor,
         num_frames=16,
-        modalities=("rgb", "depth", "skeleton")
+        modalities=("rgb", "depth", "skeleton"),
+        use_tslformer_joints=False  # NEW: Enable TSLFormer joint selection (543 → 50)
     ):
         self.annotations = self._read_annotations(annotations)
         self.processor = processor
         self.num_frames = num_frames
         self.modalities = modalities
+        self.use_tslformer_joints = use_tslformer_joints
+
+        # Import joint selection utility if needed
+        if self.use_tslformer_joints:
+            from tslformer_joint_selection import select_tslformer_joints
+            self.joint_selector = select_tslformer_joints
+        else:
+            self.joint_selector = None
 
     def _read_annotations(self, csv_f):
         with open(csv_f, newline='') as inf:
@@ -102,6 +111,10 @@ class RGBDSkel_Dataset(Dataset):
 
             # Scale to unit variance (only valid coordinates)
             keypoints = np.where(valid_mask, keypoints / std, 0.0)
+
+        # Apply TSLFormer joint selection if enabled (543 → 50 joints)
+        if self.use_tslformer_joints and self.joint_selector is not None:
+            keypoints = self.joint_selector(keypoints)  # (T, 50, 2)
 
         # Sample to target number of frames
         total_frames = keypoints.shape[0]

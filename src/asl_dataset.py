@@ -66,19 +66,44 @@ class RGBDSkel_Dataset(Dataset):
 
 
     def _load_skeleton(self, path):
-        #TODO (Coulson) edit Nan numbers to coordinate outside grid boundaries (or whatever is standard practice)
-
-        #TODO (Coulson) keep only x, y values (drop depth and model values)
+        """
+        Load skeleton keypoints with preprocessing matching TSLFormer:
+        1. Extract only x, y coordinates (drop z and visibility)
+        2. Interpolate short gaps (≤5 frames)
+        3. Normalize coordinates (mean-center and scale)
+        4. Sample to target number of frames
+        """
         keypoints = np.load(path)
 
-        # filter last dimension to only x, y values
-        keypoints = keypoints[:, :, :2]
-        # should we use interpolation to fill in missing values, should we ?
+        # Filter last dimension to only x, y values
+        keypoints = keypoints[:, :, :2]  # (T, 543, 2)
+
+        # Interpolate short gaps with linear interpolation
         interpolated_keypoints = self.interpolate_with_gaps(keypoints, max_gap=5, sentinel=0.0)
         keypoints = interpolated_keypoints
-        # change Nan values to 0 (to represent points outside grid boundaries)
-        # keypoints = np.where(np.isnan(keypoints), 999, keypoints)
 
+        # Normalize coordinates (TSLFormer does this)
+        # MediaPipe outputs are already in [0, 1] range, but we mean-center and scale
+        # to have zero mean and unit variance per sequence for better model convergence
+
+        # Mean-center across time and joints (per coordinate dimension)
+        valid_mask = (keypoints != 0.0)  # Don't include sentinel values in stats
+        if valid_mask.sum() > 0:
+            # Compute mean only over valid (non-sentinel) coordinates
+            mean = np.where(valid_mask, keypoints, 0).sum(axis=(0, 1)) / (valid_mask.sum(axis=(0, 1)) + 1e-8)
+            mean = mean.reshape(1, 1, 2)  # (1, 1, 2) for broadcasting
+
+            # Subtract mean (only from valid coordinates)
+            keypoints = np.where(valid_mask, keypoints - mean, 0.0)
+
+            # Compute std only over valid coordinates
+            std = np.sqrt(np.where(valid_mask, keypoints ** 2, 0).sum(axis=(0, 1)) / (valid_mask.sum(axis=(0, 1)) + 1e-8))
+            std = std.reshape(1, 1, 2) + 1e-8  # Add epsilon to avoid division by zero
+
+            # Scale to unit variance (only valid coordinates)
+            keypoints = np.where(valid_mask, keypoints / std, 0.0)
+
+        # Sample to target number of frames
         total_frames = keypoints.shape[0]
         indices = torch.linspace(0, total_frames - 1, self.num_frames).long()
         sampled = keypoints[indices]

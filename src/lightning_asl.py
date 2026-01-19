@@ -73,8 +73,8 @@ class SignClassificationLightning(L.LightningModule):
                 max_position_embeddings=video_mae_config.num_frames,
                 vocab_size=1,
                 type_vocab_size=1,
-                attention_dropout=0.0,
-                hidden_dropout_prob=0.0
+                attention_dropout=0.2,  # ⬆️ Increased from 0.0 to match TSLFormer
+                hidden_dropout_prob=0.2  # ⬆️ Increased from 0.0 to match TSLFormer
             )
             print("Skeleton (BERT) config:\n________________________________________")
             self.print_config(bert_config)
@@ -222,10 +222,39 @@ class SignClassificationLightning(L.LightningModule):
         loss = self.loss_fn(logits, labels)
 
         if "skeleton" in self.config["modalities"] and self.config["joint_pruning"] == True:
+            # Temperature annealing: gradually sharpen pruning decisions
+            # Start soft (temp=1.0) to explore, end sharp (temp=0.1) to commit
+            progress = self.global_step / self.config["max_steps"]
+            temperature = max(0.1, 1.0 - 0.9 * progress)  # 1.0 → 0.1 over training
+            self.joint_pruning.set_temperature(temperature)
+
+            # Add L0 regularization to encourage sparsity
             loss = loss + l0_penalty(self.joint_pruning, weight=.001)
+
+            # Log pruning statistics for visualization
             summary = self.joint_pruning.get_summary()
             self.log("pruning_ratio", summary["pruning_ratio"], on_epoch=True)
             self.log("num_active_joints", summary["num_active"], on_epoch=True)
+            self.log("avg_joint_prob", summary["avg_prob"], on_epoch=True)
+            self.log("temperature", temperature, on_step=True)
+
+            # Log full joint probabilities periodically for visualization
+            # Every 1000 steps, log the complete probability distribution
+            if self.global_step % 1000 == 0:
+                joint_probs = self.joint_pruning.get_selection_probs()
+                # Log as histogram for TensorBoard
+                self.logger.experiment.add_histogram(
+                    "joint_probabilities",
+                    joint_probs,
+                    global_step=self.global_step
+                )
+                # Also log top-K most important joints
+                top_k_indices = torch.topk(joint_probs, k=50).indices
+                self.logger.experiment.add_text(
+                    "top_50_joints",
+                    f"Indices: {top_k_indices.cpu().tolist()}",
+                    global_step=self.global_step
+                )
 
         self.log(
             "train_loss", 

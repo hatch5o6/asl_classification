@@ -1,0 +1,62 @@
+# TSLFormer-inspired configuration for skeleton-only ASL classification
+# Based on: https://arxiv.org/abs/2505.07890
+# Created by Claude to match TSLFormer architecture and fix joint pruning bugs
+
+save: /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/models/s_tslformer_claude
+test_checkpoint: null
+modalities: ["skeleton"]
+joint_pruning: True
+
+train_csv: data/train.csv
+val_csv: data/val.csv
+test_csv: data/test.csv
+class_id_csv: data/SignList_ClassId_TR_EN.csv
+
+seed: 4000
+
+n_gpus: 4
+device: cuda
+
+# Learning rates (matching TSLFormer: 1e-4)
+pretrained_learning_rate: 5e-05  # Not used for skeleton-only
+new_learning_rate: 1e-04
+skel_learning_rate: 1e-04  # TSLFormer uses Adam with 1e-4
+class_learning_rate: 1e-04
+weight_decay: 0.01
+
+# Training schedule
+effective_batch_size: 32
+early_stop: 10
+save_top_k: 10
+val_interval: 0.25 # fraction of epoch
+max_steps: 200000
+
+# Architecture - TSLFormer-inspired changes
+fusion_dim: 512  # ⬆️ Increased from 256 to match TSLFormer's capacity
+depth_image_size: 224
+depth_hidden_dim: 384
+depth_hidden_layers: 6
+depth_att_heads: 6
+depth_intermediate_size: 1536
+depth_patch_size: 16
+
+# BERT Skeleton Encoder - Matching TSLFormer architecture
+bert_hidden_layers: 2  # ⬇️ Reduced from 4 to 2 (TSLFormer uses 2)
+bert_hidden_dim: 512  # ⬆️ Increased from 256 to 512 (TSLFormer uses 512)
+bert_att_heads: 8  # ⬆️ Increased from 4 to 8 (512/64 = 8 heads)
+bert_intermediate_size: 2048  # ⬆️ Increased from 1024 to 2048 (4x hidden_dim)
+
+# Joint configuration
+num_pose_points: 543  # TODO: Reduce to ~50 after preprocessing (hands + upper body only)
+init_keep_probability: 0.5  # ⬇️ Reduced from 0.9 for more aggressive pruning (target: ~50 joints)
+classifier_dropout: 0.2  # ⬆️ Increased from 0.1 to 0.2 (TSLFormer uses 0.2)
+
+gradient_clip_val: 1.0
+
+# Key differences from original config:
+# 1. ✅ Fixed joint pruning bug (sigmoid instead of gumbel_softmax)
+# 2. ✅ Larger hidden dimensions (256→512) for more model capacity
+# 3. ✅ Fewer layers (4→2) to reduce overfitting
+# 4. ✅ More dropout (0.1→0.2) for regularization
+# 5. ✅ Lower init_keep_prob (0.9→0.5) to encourage pruning to ~50 joints
+# 6. 🔄 TODO: Reduce num_pose_points to 50 (hands + upper body) after preprocessing

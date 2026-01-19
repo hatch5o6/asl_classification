@@ -10,7 +10,7 @@
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user %u@byu.edu
 #SBATCH --output /home/%u/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_%x.out
-#SBATCH --job-name=s_train
+#SBATCH --job-name=s_tslformer_exact
 #SBATCH --qos=matrix
 
 export TRANSFORMERS_OFFLINE=1

@@ -220,7 +220,7 @@ def test(config):
     lightning_model.eval()
 
     trainer = L.Trainer(
-        accelerator=config["device"], 
+        accelerator=config["device"],
         precision="16-mixed"
     )
 

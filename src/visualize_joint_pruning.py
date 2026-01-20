@@ -36,26 +36,26 @@ def plot_joint_importance_heatmap(joint_probs, save_path, joint_names=None):
 
     # Face landmarks
     ax = axes[0, 0]
-    face_grid = face_probs.reshape(26, 18).cpu().numpy()  # Approximate 2D layout
+    face_grid = face_probs.reshape(26, 18).detach().cpu().numpy()  # Approximate 2D layout
     sns.heatmap(face_grid, ax=ax, cmap='RdYlGn', vmin=0, vmax=1, cbar_kws={'label': 'Keep Probability'})
     ax.set_title(f'Face Landmarks (n=468)\nMean prob: {face_probs.mean():.3f}')
 
     # Pose landmarks
     ax = axes[0, 1]
-    pose_display = pose_probs.cpu().numpy().reshape(1, -1)
+    pose_display = pose_probs.detach().cpu().numpy().reshape(1, -1)
     sns.heatmap(pose_display, ax=ax, cmap='RdYlGn', vmin=0, vmax=1, cbar_kws={'label': 'Keep Probability'})
     ax.set_title(f'Pose Landmarks (n=33)\nMean prob: {pose_probs.mean():.3f}')
     ax.set_xlabel('Joint Index')
 
     # Left hand
     ax = axes[1, 0]
-    left_hand_grid = left_hand_probs.cpu().numpy().reshape(3, 7)
+    left_hand_grid = left_hand_probs.detach().cpu().numpy().reshape(3, 7)
     sns.heatmap(left_hand_grid, ax=ax, cmap='RdYlGn', vmin=0, vmax=1, cbar_kws={'label': 'Keep Probability'})
     ax.set_title(f'Left Hand (n=21)\nMean prob: {left_hand_probs.mean():.3f}')
 
     # Right hand
     ax = axes[1, 1]
-    right_hand_grid = right_hand_probs.cpu().numpy().reshape(3, 7)
+    right_hand_grid = right_hand_probs.detach().cpu().numpy().reshape(3, 7)
     sns.heatmap(right_hand_grid, ax=ax, cmap='RdYlGn', vmin=0, vmax=1, cbar_kws={'label': 'Keep Probability'})
     ax.set_title(f'Right Hand (n=21)\nMean prob: {right_hand_probs.mean():.3f}')
 
@@ -88,7 +88,7 @@ def plot_top_k_joints_bar(joint_probs, save_path, k=50):
             colors.append('red')
             labels.append(f'RH-{idx-522}')
 
-    plt.bar(range(k), top_k_values.cpu().numpy(), color=colors)
+    plt.bar(range(k), top_k_values.detach().cpu().numpy(), color=colors)
     plt.axhline(y=0.5, color='black', linestyle='--', label='Threshold (0.5)')
     plt.xlabel('Rank', fontsize=12)
     plt.ylabel('Keep Probability', fontsize=12)
@@ -108,7 +108,7 @@ def plot_pruning_summary(joint_probs, save_path):
 
     # Histogram of probabilities
     ax = axes[0]
-    ax.hist(joint_probs.cpu().numpy(), bins=50, color='steelblue', edgecolor='black', alpha=0.7)
+    ax.hist(joint_probs.detach().cpu().numpy(), bins=50, color='steelblue', edgecolor='black', alpha=0.7)
     ax.axvline(x=0.5, color='red', linestyle='--', linewidth=2, label='Threshold')
     ax.set_xlabel('Keep Probability', fontsize=12)
     ax.set_ylabel('Number of Joints', fontsize=12)
@@ -118,7 +118,7 @@ def plot_pruning_summary(joint_probs, save_path):
 
     # CDF
     ax = axes[1]
-    sorted_probs = torch.sort(joint_probs, descending=True)[0].cpu().numpy()
+    sorted_probs = torch.sort(joint_probs, descending=True)[0].detach().cpu().numpy()
     ax.plot(range(len(sorted_probs)), sorted_probs, linewidth=2, color='darkgreen')
     ax.axhline(y=0.5, color='red', linestyle='--', linewidth=2, label='Threshold')
     ax.set_xlabel('Joint Rank (sorted)', fontsize=12)
@@ -210,7 +210,7 @@ def analyze_checkpoint(checkpoint_path, output_dir, config_path):
         # Save probabilities to CSV for custom analysis
         np.savetxt(
             output_dir / "joint_probabilities.csv",
-            joint_probs.cpu().numpy(),
+            joint_probs.detach().cpu().numpy(),
             delimiter=',',
             header='probability',
             comments=''

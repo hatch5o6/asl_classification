@@ -229,7 +229,15 @@ class SignClassificationLightning(L.LightningModule):
             self.joint_pruning.set_temperature(temperature)
 
             # Add L0 regularization to encourage sparsity
-            loss = loss + l0_penalty(self.joint_pruning, weight=.001)
+            # Use warmup period: let model learn which joints matter BEFORE applying L0
+            l0_warmup_steps = self.config.get("l0_warmup_steps", 0)
+            l0_weight = self.config.get("l0_weight", 0.001)
+
+            if self.global_step >= l0_warmup_steps:
+                loss = loss + l0_penalty(self.joint_pruning, weight=l0_weight)
+                self.log("l0_active", 1.0, on_step=True)
+            else:
+                self.log("l0_active", 0.0, on_step=True)
 
             # Log pruning statistics for visualization
             summary = self.joint_pruning.get_summary()

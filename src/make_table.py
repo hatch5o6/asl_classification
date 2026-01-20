@@ -4,10 +4,18 @@ import argparse
 import os
 
 
-def main(models_dir):
+def main(models_dir, models_to_test=None):
     data = {"Model":[], "Acc": [], "Macro-F1": []}
-    models_to_test = ["rgb", "rgb+d", "s_OG", "rgb+s", "rgb+d+s", "s_jpFalse", "rgb+s_jpFalse", "rgb+d+s_jpFalse"]
-    # for d in os.listdir(models_dir):
+    # If no models specified, use all directories that have predictions
+    if models_to_test is None:
+        models_to_test = []
+        for d in os.listdir(models_dir):
+            d_path = os.path.join(models_dir, d)
+            preds_path = os.path.join(d_path, "predictions")
+            if os.path.isdir(d_path) and os.path.exists(preds_path):
+                models_to_test.append(d)
+        models_to_test = sorted(models_to_test)
+        print(f"Found {len(models_to_test)} models with predictions: {models_to_test}")
     for d in models_to_test:
         d_path = os.path.join(models_dir, d)
         if not os.path.exists(d_path):
@@ -42,8 +50,11 @@ def read_json(f):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--models_dir", "-m", default="/home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/models")
+    parser.add_argument("--models", "-l", type=str, default=None,
+                        help="Comma-separated list of model names to include (default: all models with predictions)")
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = get_args()
-    main(args.models_dir)
+    models_list = args.models.split(",") if args.models else None
+    main(args.models_dir, models_to_test=models_list)

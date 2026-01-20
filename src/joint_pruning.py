@@ -1,22 +1,28 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class JointPruningModule(nn.Module):
     """
-    Learnable joint pruning using Gumbel-Softmax.
-    
+    Learnable joint pruning using sigmoid-based independent selection.
+
     This module learns which joints/keypoints are important for classification.
-    
-    During training: soft selection (probabilistic masking)
-    During inference: hard selection (binary 0/1 mask)
-    
+    Each joint has an independent learnable keep/prune probability.
+
+    During training: soft selection (continuous probabilities via sigmoid)
+    During inference: hard selection (binary 0/1 mask via threshold)
+
+    This approach enables:
+      - Visualization of joint importance over training
+      - Measurement of information flow per joint
+      - Post-hoc ablation studies at different pruning thresholds
+
     Example:
         >>> pruner = JointPruningModule(num_joints=543)
-        >>> skeleton = torch.randn(4, 16, 532, 2)  # (B, T, J, P)
+        >>> skeleton = torch.randn(4, 16, 543, 2)  # (B, T, J, P)
         >>> pruned = pruner(skeleton)
         >>> print(f"Pruning ratio: {pruner.get_pruning_ratio():.1%}")
+        >>> probs = pruner.get_selection_probs()  # Get importance of each joint
     """
     
     def __init__(
@@ -28,9 +34,9 @@ class JointPruningModule(nn.Module):
     ):
         """
         Args:
-            num_joints: Total number of skeleton joints 
-            temperature: Gumbel-Softmax temperature. Lower = sharper, higher = softer
-            hard: If True, use hard Gumbel-Softmax (discrete selection)
+            num_joints: Total number of skeleton joints
+            temperature: Sigmoid temperature scaling. Lower = sharper, higher = softer
+            hard: Deprecated (kept for backward compatibility). Hard selection is automatic during eval.
             init_keep_prob: Initial probability to keep each joint (0.0-1.0)
         """
         super().__init__()
@@ -71,20 +77,28 @@ class JointPruningModule(nn.Module):
             assert P == 2, f"Expected P=2 (x,y), got {P}"
             assert J == self.num_joints, f"Expected {self.num_joints} joints, got {J}"
         
-        # Generate soft selection mask using Gumbel-Softmax
-        # Input: (num_joints,) logits
-        # Output: (num_joints,) probabilities in [0, 1]
-        selection_mask = F.gumbel_softmax(
-            self.joint_logits.unsqueeze(0),  # (1, J)
-            tau=self.temperature,
-            hard=self.hard,
-            dim=-1
-        ).squeeze(0)  # (J,)
-        
+        # Generate independent selection mask for each joint using sigmoid
+        # Input: (num_joints,) learnable logits
+        # Output: (num_joints,) independent keep probabilities in [0, 1]
+        #
+        # Key advantages of sigmoid over softmax:
+        #   - Each joint selected independently (not competing for probability mass)
+        #   - Clean visualization: probability directly indicates importance
+        #   - Enables ablation: can threshold at different K values post-hoc
+        #   - Measures information flow: prob × activation magnitude
+
+        if self.training:
+            # Soft selection during training (continuous probabilities)
+            # Temperature scaling controls decision sharpness
+            selection_mask = torch.sigmoid(self.joint_logits / self.temperature)
+        else:
+            # Hard selection during inference (binary 0/1 decisions)
+            selection_mask = (torch.sigmoid(self.joint_logits) > 0.5).float()
+
         # Reshape mask for broadcasting: (J,) -> (1, 1, J, 1)
         mask = selection_mask.view(1, 1, J, 1)
-        
-        # Apply soft multiplication (keeps gradient flow)
+
+        # Apply soft multiplication (keeps gradient flow during training)
         pruned = skeleton_keypoints * mask  # (B, T, J, 2)
         
         # Restore original format if needed
@@ -141,18 +155,25 @@ class JointPruningModule(nn.Module):
 def l0_penalty(pruning_layer: JointPruningModule, weight: float = 0.001) -> torch.Tensor:
     """
     Compute L0 regularization loss to encourage sparsity.
-    
+
+    Penalizes the TOTAL number of active joints (not average probability).
+    This encourages the model to use fewer joints overall.
+
     Higher weight -> more aggressive pruning
-    
+
     Args: pruning_layer: JointPruningModule instance
-          weight: Scaling factor for the penalty
-        
+          weight: Scaling factor for the penalty (recommended: 0.001 - 0.01)
+
     Returns: Scalar loss term
+
+    Example:
+        - 50 joints at prob=0.9 → penalty = weight * 45
+        - 500 joints at prob=0.9 → penalty = weight * 450
     """
-    # Penalty is the average probability of keeping a joint
-    # Higher probability = higher penalty
+    # Penalty is the SUM of keep probabilities (≈ number of active joints)
+    # This directly penalizes keeping more joints
     keep_probs = torch.sigmoid(pruning_layer.joint_logits)
-    return weight * keep_probs.mean()
+    return weight * keep_probs.sum()
 
 
 # Example usage / testing

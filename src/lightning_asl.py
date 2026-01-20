@@ -78,7 +78,7 @@ class SignClassificationLightning(L.LightningModule):
                 max_position_embeddings=bert_num_frames,
                 vocab_size=1,
                 type_vocab_size=1,
-                attention_dropout=0.0,
+                attention_dropout=0.2,
                 hidden_dropout_prob=self.config["bert_dropout"]
             )
             print("Skeleton (BERT) config:\n________________________________________")
@@ -227,10 +227,60 @@ class SignClassificationLightning(L.LightningModule):
         loss = self.loss_fn(logits, labels)
 
         if "skeleton" in self.config["modalities"] and self.config["joint_pruning"] == True:
-            loss = loss + l0_penalty(self.joint_pruning, weight=.001)
+            # Temperature annealing: gradually sharpen pruning decisions
+            # Start soft (temp=1.0) to explore, end sharp (temp=0.1) to commit
+            progress = self.global_step / self.config["max_steps"]
+            temperature = max(0.1, 1.0 - 0.9 * progress)  # 1.0 → 0.1 over training
+            self.joint_pruning.set_temperature(temperature)
+
+            # Add L0 regularization to encourage sparsity
+            # Supports three modes:
+            # 1. No warmup/anneal: constant l0_weight from step 0
+            # 2. Warmup only: l0_weight turns on after l0_warmup_steps
+            # 3. Annealing: l0_weight ramps from 0 to l0_end_weight over l0_anneal_steps (after warmup)
+            l0_warmup_steps = self.config.get("l0_warmup_steps", 0)
+            l0_anneal_steps = self.config.get("l0_anneal_steps", 0)
+            l0_end_weight = self.config.get("l0_end_weight", self.config.get("l0_weight", 0.001))
+
+            if self.global_step < l0_warmup_steps:
+                # Warmup phase: no L0 penalty
+                current_l0_weight = 0.0
+                self.log("l0_active", 0.0, on_step=True)
+            elif l0_anneal_steps > 0:
+                # Annealing phase: linearly ramp up L0 weight
+                anneal_progress = min(1.0, (self.global_step - l0_warmup_steps) / l0_anneal_steps)
+                current_l0_weight = l0_end_weight * anneal_progress
+                self.log("l0_active", anneal_progress, on_step=True)
+            else:
+                # No annealing: full L0 weight after warmup
+                current_l0_weight = l0_end_weight
+                self.log("l0_active", 1.0, on_step=True)
+
+            if current_l0_weight > 0:
+                loss = loss + l0_penalty(self.joint_pruning, weight=current_l0_weight)
+            self.log("l0_weight", current_l0_weight, on_step=True)
+
+            # Log pruning statistics for visualization
             summary = self.joint_pruning.get_summary()
             self.log("pruning_ratio", summary["pruning_ratio"], on_epoch=True)
             self.log("num_active_joints", summary["num_active"], on_epoch=True)
+            self.log("avg_joint_prob", summary["avg_prob"], on_epoch=True)
+            self.log("temperature", temperature, on_step=True)
+
+            # Log joint probability statistics periodically for visualization
+            # Every 1000 steps, log distribution statistics
+            if self.global_step % 1000 == 0:
+                joint_probs = self.joint_pruning.get_selection_probs()
+
+                # Log percentiles to understand probability distribution
+                self.log("joint_prob_p25", torch.quantile(joint_probs, 0.25), on_step=True)
+                self.log("joint_prob_median", torch.median(joint_probs), on_step=True)
+                self.log("joint_prob_p75", torch.quantile(joint_probs, 0.75), on_step=True)
+
+                # Log top-K joint statistics
+                top_50_probs = torch.topk(joint_probs, k=50).values
+                self.log("top_50_avg_prob", top_50_probs.mean(), on_step=True)
+                self.log("top_50_min_prob", top_50_probs.min(), on_step=True)
 
         self.log(
             "train_loss", 

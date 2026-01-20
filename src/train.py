@@ -71,8 +71,9 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     train_dataset = RGBDSkel_Dataset(
         annotations=config["train_csv"],
         processor=processor,
-        num_frames=num_frames,
-        modalities=modalities
+        num_frames=video_mae_config.num_frames,
+        modalities=modalities,
+        use_tslformer_joints=config.get("use_tslformer_joints", False)  # Backward compatible
     )
     train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
 
@@ -80,8 +81,9 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     val_dataset = RGBDSkel_Dataset(
         annotations=config["val_csv"],
         processor=processor,
-        num_frames=num_frames,
-        modalities=modalities
+        num_frames=video_mae_config.num_frames,
+        modalities=modalities,
+        use_tslformer_joints=config.get("use_tslformer_joints", False)  # Backward compatible
     )
     val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
 
@@ -197,8 +199,9 @@ def test(config):
     test_dataset = RGBDSkel_Dataset(
         annotations=config["test_csv"],
         processor=processor,
-        num_frames=num_frames,
-        modalities=modalities
+        num_frames=video_mae_config.num_frames,
+        modalities=modalities,
+        use_tslformer_joints=config.get("use_tslformer_joints", False)  # Backward compatible
     )
     test_dataloader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)
 
@@ -229,7 +232,7 @@ def test(config):
     lightning_model.eval()
 
     trainer = L.Trainer(
-        accelerator=config["device"], 
+        accelerator=config["device"],
         precision="16-mixed"
     )
 

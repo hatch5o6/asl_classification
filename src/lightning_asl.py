@@ -229,15 +229,31 @@ class SignClassificationLightning(L.LightningModule):
             self.joint_pruning.set_temperature(temperature)
 
             # Add L0 regularization to encourage sparsity
-            # Use warmup period: let model learn which joints matter BEFORE applying L0
+            # Supports three modes:
+            # 1. No warmup/anneal: constant l0_weight from step 0
+            # 2. Warmup only: l0_weight turns on after l0_warmup_steps
+            # 3. Annealing: l0_weight ramps from 0 to l0_end_weight over l0_anneal_steps (after warmup)
             l0_warmup_steps = self.config.get("l0_warmup_steps", 0)
-            l0_weight = self.config.get("l0_weight", 0.001)
+            l0_anneal_steps = self.config.get("l0_anneal_steps", 0)
+            l0_end_weight = self.config.get("l0_end_weight", self.config.get("l0_weight", 0.001))
 
-            if self.global_step >= l0_warmup_steps:
-                loss = loss + l0_penalty(self.joint_pruning, weight=l0_weight)
-                self.log("l0_active", 1.0, on_step=True)
-            else:
+            if self.global_step < l0_warmup_steps:
+                # Warmup phase: no L0 penalty
+                current_l0_weight = 0.0
                 self.log("l0_active", 0.0, on_step=True)
+            elif l0_anneal_steps > 0:
+                # Annealing phase: linearly ramp up L0 weight
+                anneal_progress = min(1.0, (self.global_step - l0_warmup_steps) / l0_anneal_steps)
+                current_l0_weight = l0_end_weight * anneal_progress
+                self.log("l0_active", anneal_progress, on_step=True)
+            else:
+                # No annealing: full L0 weight after warmup
+                current_l0_weight = l0_end_weight
+                self.log("l0_active", 1.0, on_step=True)
+
+            if current_l0_weight > 0:
+                loss = loss + l0_penalty(self.joint_pruning, weight=current_l0_weight)
+            self.log("l0_weight", current_l0_weight, on_step=True)
 
             # Log pruning statistics for visualization
             summary = self.joint_pruning.get_summary()

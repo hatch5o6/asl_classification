@@ -17,13 +17,16 @@ class RGBDSkel_Dataset(Dataset):
         processor: VideoMAEImageProcessor,
         num_frames=16,
         modalities=("rgb", "depth", "skeleton"),
-        use_tslformer_joints=False  # NEW: Enable TSLFormer joint selection (543 → 50)
+        use_tslformer_joints=False,  # Enable TSLFormer joint selection (543 → 50)
+        use_z_coord=False  # Include Z coordinate (3D) instead of just X, Y (2D)
     ):
         self.annotations = self._read_annotations(annotations)
         self.processor = processor
         self.num_frames = num_frames
         self.modalities = modalities
         self.use_tslformer_joints = use_tslformer_joints
+        self.use_z_coord = use_z_coord
+        self.num_coords = 3 if use_z_coord else 2
 
         # Import joint selection utility if needed
         if self.use_tslformer_joints:
@@ -77,15 +80,16 @@ class RGBDSkel_Dataset(Dataset):
     def _load_skeleton(self, path):
         """
         Load skeleton keypoints with preprocessing matching TSLFormer:
-        1. Extract only x, y coordinates (drop z and visibility)
+        1. Extract x, y (and optionally z) coordinates
         2. Interpolate short gaps (≤5 frames)
         3. Normalize coordinates (mean-center and scale)
         4. Sample to target number of frames
         """
         keypoints = np.load(path)
 
-        # Filter last dimension to only x, y values
-        keypoints = keypoints[:, :, :2]  # (T, 543, 2)
+        # Filter last dimension to x, y (and optionally z) values
+        # Raw format: (T, 543, 4) with [x, y, z, visibility]
+        keypoints = keypoints[:, :, :self.num_coords]  # (T, 543, 2) or (T, 543, 3)
 
         # Interpolate short gaps with linear interpolation
         interpolated_keypoints = self.interpolate_with_gaps(keypoints, max_gap=5, sentinel=0.0)
@@ -100,21 +104,21 @@ class RGBDSkel_Dataset(Dataset):
         if valid_mask.sum() > 0:
             # Compute mean only over valid (non-sentinel) coordinates
             mean = np.where(valid_mask, keypoints, 0).sum(axis=(0, 1)) / (valid_mask.sum(axis=(0, 1)) + 1e-8)
-            mean = mean.reshape(1, 1, 2)  # (1, 1, 2) for broadcasting
+            mean = mean.reshape(1, 1, self.num_coords)  # (1, 1, num_coords) for broadcasting
 
             # Subtract mean (only from valid coordinates)
             keypoints = np.where(valid_mask, keypoints - mean, 0.0)
 
             # Compute std only over valid coordinates
             std = np.sqrt(np.where(valid_mask, keypoints ** 2, 0).sum(axis=(0, 1)) / (valid_mask.sum(axis=(0, 1)) + 1e-8))
-            std = std.reshape(1, 1, 2) + 1e-8  # Add epsilon to avoid division by zero
+            std = std.reshape(1, 1, self.num_coords) + 1e-8  # Add epsilon to avoid division by zero
 
             # Scale to unit variance (only valid coordinates)
             keypoints = np.where(valid_mask, keypoints / std, 0.0)
 
         # Apply TSLFormer joint selection if enabled (543 → 50 joints)
         if self.use_tslformer_joints and self.joint_selector is not None:
-            keypoints = self.joint_selector(keypoints)  # (T, 50, 2)
+            keypoints = self.joint_selector(keypoints)  # (T, 50, num_coords)
 
         # Sample to target number of frames
         total_frames = keypoints.shape[0]

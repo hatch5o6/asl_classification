@@ -67,7 +67,8 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
         processor=processor,
         num_frames=video_mae_config.num_frames,
         modalities=modalities,
-        use_tslformer_joints=config.get("use_tslformer_joints", False)  # Backward compatible
+        use_tslformer_joints=config.get("use_tslformer_joints", False),
+        use_z_coord=config.get("use_z_coord", False)
     )
     train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
 
@@ -77,7 +78,8 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
         processor=processor,
         num_frames=video_mae_config.num_frames,
         modalities=modalities,
-        use_tslformer_joints=config.get("use_tslformer_joints", False)  # Backward compatible
+        use_tslformer_joints=config.get("use_tslformer_joints", False),
+        use_z_coord=config.get("use_z_coord", False)
     )
     val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
 
@@ -189,7 +191,8 @@ def test(config):
         processor=processor,
         num_frames=video_mae_config.num_frames,
         modalities=modalities,
-        use_tslformer_joints=config.get("use_tslformer_joints", False)  # Backward compatible
+        use_tslformer_joints=config.get("use_tslformer_joints", False),
+        use_z_coord=config.get("use_z_coord", False)
     )
     test_dataloader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)
 

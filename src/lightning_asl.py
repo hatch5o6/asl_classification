@@ -110,7 +110,8 @@ class SignClassificationLightning(L.LightningModule):
             self.skel_mod_idx = next_idx
             next_idx += 1
             self.skel_encoder = BertModel(bert_config)
-            self.skel_proj = torch.nn.Linear(config["num_pose_points"] * 2, 
+            num_coords = config.get("num_coords", 2)  # 2 for X,Y; 3 for X,Y,Z
+            self.skel_proj = torch.nn.Linear(config["num_pose_points"] * num_coords,
                                              self.skel_encoder.config.hidden_size)
             #add layer norm
             self.skel_norm = torch.nn.LayerNorm(self.skel_encoder.config.hidden_size)
@@ -176,7 +177,8 @@ class SignClassificationLightning(L.LightningModule):
         # Skeleton
         if skeleton_keypoints is not None:
             B, T, J, P = skeleton_keypoints.shape
-            assert P == 2
+            expected_coords = self.config.get("num_coords", 2)
+            assert P == expected_coords, f"Expected {expected_coords} coordinates, got {P}"
             if self.config["joint_pruning"] == True:
                 skeleton_keypoints = self.joint_pruning(skeleton_keypoints)
 

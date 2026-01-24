@@ -36,8 +36,10 @@ bert_hidden_layers: 4
 bert_hidden_dim: 256
 bert_att_heads: 4
 bert_intermediate_size: 1024
+bert_dropout: 0.0
 num_pose_points: 543
 init_keep_probability: 0.9
 classifier_dropout: 0.1
 
+num_frames: video_mae
 gradient_clip_val: 1.0

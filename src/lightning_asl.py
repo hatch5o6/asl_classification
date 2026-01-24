@@ -64,17 +64,22 @@ class SignClassificationLightning(L.LightningModule):
             self.print_config(depth_config)
 
         # Skeleton config
+        bert_num_frames = self.config["num_frames"]
+        if bert_num_frames == "video_mae":
+            bert_num_frames = video_mae_config.num_frames
+        assert isinstance(bert_num_frames, int)
         if "skeleton" in self.config["modalities"]:
             bert_config = BertConfig(
                 hidden_size=self.config["bert_hidden_dim"],
                 num_hidden_layers=self.config["bert_hidden_layers"],
                 num_attention_heads=self.config["bert_att_heads"],
                 intermediate_size=self.config["bert_intermediate_size"],
-                max_position_embeddings=video_mae_config.num_frames,
+                # max_position_embeddings=video_mae_config.num_frames,
+                max_position_embeddings=bert_num_frames,
                 vocab_size=1,
                 type_vocab_size=1,
-                attention_dropout=0.2,  # ⬆️ Increased from 0.0 to match TSLFormer
-                hidden_dropout_prob=0.2  # ⬆️ Increased from 0.0 to match TSLFormer
+                attention_dropout=0.2,
+                hidden_dropout_prob=self.config["bert_dropout"]
             )
             print("Skeleton (BERT) config:\n________________________________________")
             self.print_config(bert_config)
@@ -110,12 +115,12 @@ class SignClassificationLightning(L.LightningModule):
             self.skel_mod_idx = next_idx
             next_idx += 1
             self.skel_encoder = BertModel(bert_config)
+            self.skel_encoder.train()
             num_coords = config.get("num_coords", 2)  # 2 for X,Y; 3 for X,Y,Z
             self.skel_proj = torch.nn.Linear(config["num_pose_points"] * num_coords,
                                              self.skel_encoder.config.hidden_size)
             #add layer norm
             self.skel_norm = torch.nn.LayerNorm(self.skel_encoder.config.hidden_size)
-            self.skel_encoder.train()
             self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
             # Skeleton pruning layer
             if self.config["joint_pruning"] == True:

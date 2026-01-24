@@ -61,6 +61,12 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
     modalities = tuple(config["modalities"])
 
+    num_frames = config["num_frames"]
+    if num_frames == "video_mae":
+        num_frames = video_mae_config.num_frames
+    else:
+        assert isinstance(num_frames, int)
+
     # load train dataloader
     train_dataset = RGBDSkel_Dataset(
         annotations=config["train_csv"],
@@ -185,6 +191,12 @@ def test(config):
     processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
     modalities = tuple(config["modalities"])
 
+    num_frames = config["num_frames"]
+    if num_frames == "video_mae":
+        num_frames = video_mae_config.num_frames
+    else:
+        assert isinstance(num_frames, int)
+
     # load test dataloader
     test_dataset = RGBDSkel_Dataset(
         annotations=config["test_csv"],
@@ -262,7 +274,7 @@ def test(config):
             writer.writerow([vid, lab, label_dict[lab], pred, label_dict[pred]])
 
     print("metrics")
-    print(metrics)
+    print(json.dumps(metrics, ensure_ascii=False, indent=2))
     metrics_out = os.path.join(predictions_dir, checkpoint_to_test.split("/")[-1] + ".metrics.json")
     with open(metrics_out, "w") as outf:
         outf.write(json.dumps(metrics, ensure_ascii=False, indent=2))

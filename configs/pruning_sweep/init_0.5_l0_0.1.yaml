@@ -1,7 +1,7 @@
-# Joint Pruning Sweep - Neutral init (0.5) with moderate L0
-# Experiment: Start neutral, let model decide from scratch
+# Joint Pruning Sweep - Neutral init (0.5) with strong L0
+# Experiment: Start neutral with aggressive pruning pressure
 
-save: /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/models/pruning_sweep_init_0.5_l0_0.01
+save: /home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/models/pruning_sweep_init_0.5_l0_0.1
 test_checkpoint: null
 modalities: ["skeleton"]
 joint_pruning: True
@@ -51,7 +51,7 @@ num_pose_points: 543
 init_keep_probability: 0.5  # Neutral start - model must learn from scratch
 l0_warmup_steps: 5000
 l0_anneal_steps: 15000
-l0_end_weight: 0.01  # Moderate L0
+l0_end_weight: 0.1  # Strong L0 with neutral init
 classifier_dropout: 0.2
 
 gradient_clip_val: 1.0

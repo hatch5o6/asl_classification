@@ -13,6 +13,7 @@ test_csv: data/test.csv
 class_id_csv: data/SignList_ClassId_TR_EN.csv
 
 seed: 4000
+num_frames: video_mae
 
 n_gpus: 4
 device: cuda
@@ -45,6 +46,7 @@ bert_hidden_layers: 2  # ⬇️ Reduced from 4 to 2 (TSLFormer uses 2)
 bert_hidden_dim: 512  # ⬆️ Increased from 256 to 512 (TSLFormer uses 512)
 bert_att_heads: 8  # ⬆️ Increased from 4 to 8 (512/64 = 8 heads)
 bert_intermediate_size: 2048  # ⬆️ Increased from 1024 to 2048 (4x hidden_dim)
+bert_dropout: 0.0
 
 # Joint configuration
 num_pose_points: 543  # TODO: Reduce to ~50 after preprocessing (hands + upper body only)

@@ -17,6 +17,7 @@ test_csv: data/test.csv
 class_id_csv: data/SignList_ClassId_TR_EN.csv
 
 seed: 4000
+num_frames: video_mae
 
 n_gpus: 4
 device: cuda
@@ -51,6 +52,7 @@ bert_hidden_layers: 2         # TSLFormer: 2 layers
 bert_hidden_dim: 512          # TSLFormer: 512 hidden size
 bert_att_heads: 8             # TSLFormer: 4 heads (paper), but 512/64=8 is standard
 bert_intermediate_size: 2048  # TSLFormer: 4x hidden_dim (standard)
+bert_dropout: 0.0
 
 # Joint configuration
 num_pose_points: 50  # TSLFormer uses ~48 (we use 50: 8 pose + 42 hands)

@@ -152,28 +152,44 @@ class JointPruningModule(nn.Module):
         }
 
 
-def l0_penalty(pruning_layer: JointPruningModule, weight: float = 0.001) -> torch.Tensor:
+def l0_penalty(pruning_layer: JointPruningModule, weight: float = 0.001,
+               batch_size: int = 1, normalize: bool = True) -> torch.Tensor:
     """
     Compute L0 regularization loss to encourage sparsity.
 
-    Penalizes the TOTAL number of active joints (not average probability).
-    This encourages the model to use fewer joints overall.
+    CRITICAL: Normalization is essential for proper gradient balance!
+    Without normalization, the L0 penalty magnitude doesn't match the per-sample
+    classification loss magnitude, causing all joints to be pushed down uniformly
+    instead of selective pruning.
 
-    Higher weight -> more aggressive pruning
-
-    Args: pruning_layer: JointPruningModule instance
-          weight: Scaling factor for the penalty (recommended: 0.001 - 0.01)
+    Args:
+        pruning_layer: JointPruningModule instance
+        weight: Scaling factor for the penalty (with normalize=True, use 10-100)
+        batch_size: Current batch size for normalization
+        normalize: If True, normalize by batch_size and num_joints to match
+                   the scale of per-sample classification loss
 
     Returns: Scalar loss term
 
-    Example:
-        - 50 joints at prob=0.9 → penalty = weight * 45
-        - 500 joints at prob=0.9 → penalty = weight * 450
+    Example WITHOUT normalization (OLD - BROKEN):
+        - Classification loss per sample: ~1.5
+        - L0 penalty: 0.1 * 418 = 41.8
+        - Per-sample L0 contribution: 41.8/8 = 5.2 >> 1.5 (too strong!)
+
+    Example WITH normalization (NEW - CORRECT):
+        - Classification loss per sample: ~1.5
+        - L0 penalty: 20.0 * (418 / (8 * 543)) = 20.0 * 0.096 = 1.92 (balanced!)
     """
-    # Penalty is the SUM of keep probabilities (≈ number of active joints)
-    # This directly penalizes keeping more joints
     keep_probs = torch.sigmoid(pruning_layer.joint_logits)
-    return weight * keep_probs.sum()
+    l0_loss = keep_probs.sum()
+
+    if normalize:
+        # Normalize to be comparable to per-sample classification loss
+        # This makes the L0 penalty represent "average probability per sample"
+        # rather than "total probability across all joints"
+        l0_loss = l0_loss / (batch_size * pruning_layer.num_joints)
+
+    return weight * l0_loss
 
 
 # Example usage / testing

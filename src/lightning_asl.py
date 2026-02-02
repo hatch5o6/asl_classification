@@ -230,9 +230,22 @@ class SignClassificationLightning(L.LightningModule):
 
         if "skeleton" in self.config["modalities"] and self.config["joint_pruning"] == True:
             # Temperature annealing: gradually sharpen pruning decisions
-            # Start soft (temp=1.0) to explore, end sharp (temp=0.1) to commit
-            progress = self.global_step / self.config["max_steps"]
-            temperature = max(0.1, 1.0 - 0.9 * progress)  # 1.0 → 0.1 over training
+            # Research shows: start HIGH (10.0) for strong gradients, anneal FAST to force binary decisions
+            #
+            # Why this schedule works:
+            # - High temp (10.0): Sigmoid becomes very soft, gradients flow well, model learns importance
+            # - Low temp (0.01): Sigmoid becomes very sharp, forces probabilities toward 0 or 1
+            # - Fast anneal (50k steps): Gives model time to learn, then forces commitment
+            #
+            # Previous schedule (1.0 → 0.1 over 200k) was too slow - model converged to 0.77
+            # equilibrium before temperature got low enough to force binary decisions
+            temp_start = self.config.get("temp_start", 10.0)
+            temp_end = self.config.get("temp_end", 0.01)
+            temp_anneal_steps = self.config.get("temp_anneal_steps", 50000)
+
+            # Exponential decay: temp = start * (end/start)^progress
+            temp_progress = min(1.0, self.global_step / temp_anneal_steps)
+            temperature = temp_start * (temp_end / temp_start) ** temp_progress
             self.joint_pruning.set_temperature(temperature)
 
             # Add L0 regularization to encourage sparsity
@@ -259,7 +272,11 @@ class SignClassificationLightning(L.LightningModule):
                 self.log("l0_active", 1.0, on_step=True)
 
             if current_l0_weight > 0:
-                loss = loss + l0_penalty(self.joint_pruning, weight=current_l0_weight)
+                # Get batch size from skeleton keypoints
+                batch_size = skel_keypoints.size(0) if skel_keypoints is not None else labels.size(0)
+                # Use normalized L0 penalty for proper gradient balance
+                loss = loss + l0_penalty(self.joint_pruning, weight=current_l0_weight,
+                                        batch_size=batch_size, normalize=True)
             self.log("l0_weight", current_l0_weight, on_step=True)
 
             # Log pruning statistics for visualization

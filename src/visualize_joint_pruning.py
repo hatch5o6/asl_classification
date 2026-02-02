@@ -315,6 +315,19 @@ def analyze_checkpoint(checkpoint_path, output_dir, config_path):
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
+    # Ensure required fields have defaults for checkpoint loading
+    # These are normally set by read_config() in train.py but not present in yaml
+    config.setdefault("num_frames", "video_mae")
+    config.setdefault("batch_size", config.get("effective_batch_size", 32) // config.get("n_gpus", 4))
+    config.setdefault("bert_dropout", 0.0)
+    config.setdefault("warmup_steps", round(0.05 * config.get("max_steps", 200000)))
+
+    # Replace hatch5o6 with current user (same as read_config in train.py)
+    import json, getpass
+    config_str = json.dumps(config)
+    config_str = config_str.replace("hatch5o6", getpass.getuser())
+    config = json.loads(config_str)
+
     # Load model
     model = SignClassificationLightning.load_from_checkpoint(
         checkpoint_path,

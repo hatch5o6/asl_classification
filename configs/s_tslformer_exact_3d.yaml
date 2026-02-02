@@ -21,6 +21,7 @@ test_csv: data/test.csv
 class_id_csv: data/SignList_ClassId_TR_EN.csv
 
 seed: 4000
+num_frames: video_mae
 
 n_gpus: 4
 device: cuda
@@ -53,6 +54,7 @@ bert_hidden_layers: 2
 bert_hidden_dim: 512
 bert_att_heads: 8
 bert_intermediate_size: 2048
+bert_dropout: 0.0
 
 # Joint configuration
 # Input size: 50 joints * 3 coords = 150 features (vs 100 for 2D)

@@ -18,7 +18,8 @@ class RGBDSkel_Dataset(Dataset):
         num_frames=16,
         modalities=("rgb", "depth", "skeleton"),
         use_tslformer_joints=False,  # Enable TSLFormer joint selection (543 → 50)
-        use_z_coord=False  # Include Z coordinate (3D) instead of just X, Y (2D)
+        use_z_coord=False,  # Include Z coordinate (3D) instead of just X, Y (2D)
+        selected_joint_indices=None  # Custom joint index selection (list of 543-space indices)
     ):
         self.annotations = self._read_annotations(annotations)
         self.processor = processor
@@ -27,6 +28,11 @@ class RGBDSkel_Dataset(Dataset):
         self.use_tslformer_joints = use_tslformer_joints
         self.use_z_coord = use_z_coord
         self.num_coords = 3 if use_z_coord else 2
+        self.selected_joint_indices = selected_joint_indices
+
+        # Mutually exclusive: can't use both TSLFormer and custom selection
+        assert not (use_tslformer_joints and selected_joint_indices is not None), \
+            "Cannot use both use_tslformer_joints and selected_joint_indices"
 
         # Import joint selection utility if needed
         if self.use_tslformer_joints:
@@ -119,6 +125,10 @@ class RGBDSkel_Dataset(Dataset):
         # Apply TSLFormer joint selection if enabled (543 → 50 joints)
         if self.use_tslformer_joints and self.joint_selector is not None:
             keypoints = self.joint_selector(keypoints)  # (T, 50, num_coords)
+
+        # Apply custom joint index selection if provided
+        if self.selected_joint_indices is not None:
+            keypoints = keypoints[:, self.selected_joint_indices, :]
 
         # Sample to target number of frames
         total_frames = keypoints.shape[0]

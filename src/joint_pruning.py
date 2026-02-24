@@ -30,7 +30,9 @@ class JointPruningModule(nn.Module):
         num_joints: int,
         temperature: float = 1.0,
         hard: bool = False,
-        init_keep_prob: float = 0.9
+        init_keep_prob: float = 0.9,
+        random_init: bool = False,
+        random_init_std: float = 0.1
     ):
         """
         Args:
@@ -38,16 +40,26 @@ class JointPruningModule(nn.Module):
             temperature: Sigmoid temperature scaling. Lower = sharper, higher = softer
             hard: Deprecated (kept for backward compatibility). Hard selection is automatic during eval.
             init_keep_prob: Initial probability to keep each joint (0.0-1.0)
+            random_init: If True, add random noise to break symmetry
+            random_init_std: Standard deviation of random noise (default 0.1)
         """
         super().__init__()
         self.num_joints = num_joints
         self.temperature = temperature
         self.hard = hard
-        
+
         # Learnable logits: one scalar per joint
         # Initialize so that log-odds corresponds to init_keep_prob
         init_logits = torch.log(torch.tensor(init_keep_prob / (1 - init_keep_prob)))
-        self.joint_logits = nn.Parameter(torch.full((num_joints,), init_logits))
+
+        if random_init:
+            # Add random noise to break symmetry
+            noise = torch.randn(num_joints) * random_init_std
+            self.joint_logits = nn.Parameter(torch.full((num_joints,), init_logits) + noise)
+            print(f"L0 Pruning: Using random initialization with std={random_init_std}")
+            print(f"  Logit range: [{self.joint_logits.min().item():.3f}, {self.joint_logits.max().item():.3f}]")
+        else:
+            self.joint_logits = nn.Parameter(torch.full((num_joints,), init_logits))
         
     def forward(self, skeleton_keypoints: torch.Tensor) -> torch.Tensor:
         """

@@ -13,9 +13,7 @@ def main(config, n_trials, RESUME):
     assert RESUME in [True, False]
 
     base_cfg =  read_config(config)
-    # for optimization, will train on one gpu only.
-    base_cfg["batch_size"] = base_cfg["effective_batch_size"]
-    base_cfg["n_gpus"] = 1
+    # Use all available GPUs for faster trials
     base_cfg["device"] = "cuda"
     print("HYPERPARAMETER OPTIMIZATION BASE CONFIG:")
     for k, v in base_cfg.items():
@@ -41,16 +39,40 @@ def main(config, n_trials, RESUME):
             cfg["class_learning_rate"] = trial.suggest_float("class_learning_rate", 5e-5, 5e-4,log=True)
             cfg["pretrained_learning_rate"] = trial.suggest_float("pretrained_learning_rate", 2e-5, 1e-4,log=True)
             cfg["new_learning_rate"] = trial.suggest_float("new_learning_rate", 5e-5, 5e-4,log=True)
-            
+
             # cfg["depth_image_size"] = trial.suggest_categorical("depth_image_size", [112, 168, 224]) # Keep it fixed at 224, which is the default
             cfg["depth_hidden_dim"] = trial.suggest_categorical("depth_hidden_dim", [384, 512, 768])
             cfg["depth_hidden_layers"] = trial.suggest_categorical("depth_hidden_layers", [4, 6, 8])
             cfg["depth_att_heads"] = trial.suggest_categorical("depth_att_heads", [4, 8])
             cfg["depth_intermediate_size"] = trial.suggest_categorical("depth_intermediate_size", [768, 1024, 1536, 2048, 3072])
             # cfg["depth_patch_size"] = trial.suggest_categorical("depth_patch_size", [16])
-        
+
             print("SAMPLED THE FOLLOWING VALUES")
             for k in ["fusion_dim", "class_learning_rate", "pretrained_learning_rate", "new_learning_rate", "depth_hidden_dim", "depth_hidden_layers", "depth_att_heads", "depth_intermediate_size"]:
+                print(f"{k}={cfg[k]}")
+            print("\n")
+        elif cfg["modalities"] == ["skeleton"] and cfg.get("joint_indices_file") is not None:
+            # Informed selection models (topk or iterative) with L0 pruning (no gating)
+            # Search over skeleton encoder, L0, and training hyperparameters
+            cfg["skel_learning_rate"] = trial.suggest_float("skel_learning_rate", 5e-5, 5e-4, log=True)
+
+            cfg["bert_hidden_layers"] = trial.suggest_categorical("bert_hidden_layers", [2, 4, 6])
+            cfg["bert_hidden_dim"] = trial.suggest_categorical("bert_hidden_dim", [256, 384, 512])
+            cfg["bert_att_heads"] = trial.suggest_categorical("bert_att_heads", [4, 8])
+            cfg["bert_intermediate_size"] = trial.suggest_categorical("bert_intermediate_size", [512, 768, 1024, 1536, 2048])
+
+            # L0 pruning hyperparameters
+            cfg["l0_end_weight"] = trial.suggest_categorical("l0_end_weight", [10.0, 20.0, 50.0])
+
+            cfg["classifier_dropout"] = trial.suggest_categorical("classifier_dropout", [0.1, 0.2, 0.3])
+
+            sampled_keys = [
+                "skel_learning_rate", "bert_hidden_layers", "bert_hidden_dim",
+                "bert_att_heads", "bert_intermediate_size", "l0_end_weight",
+                "classifier_dropout"
+            ]
+            print("SAMPLED THE FOLLOWING VALUES (informed selection)")
+            for k in sampled_keys:
                 print(f"{k}={cfg[k]}")
             print("\n")
         elif cfg["modalities"] == ["skeleton"]:
@@ -60,13 +82,22 @@ def main(config, n_trials, RESUME):
 
             # cfg["class_learning_rate"] = trial.suggest_float("class_learning_rate", ,log=True)
             cfg["skel_learning_rate"] = trial.suggest_float("skel_learning_rate", 5e-5, 5e-4,log=True)
-            
+
             cfg["bert_hidden_layers"] = trial.suggest_categorical("bert_hidden_layers", [4, 6, 8])
             cfg["bert_hidden_dim"] = trial.suggest_categorical("bert_hidden_dim", [256, 384, 512])
             cfg["bert_att_heads"] = trial.suggest_categorical("bert_att_heads", [4, 8])
             cfg["bert_intermediate_size"] = trial.suggest_categorical("bert_intermediate_size", [512, 768, 1024, 1536, 2048])
+
+            sampled_keys = ["skel_learning_rate", "bert_hidden_layers", "bert_hidden_dim", "bert_att_heads", "bert_intermediate_size"]
+
+            # If L0 pruning is enabled, also search over L0 and classifier hyperparameters
+            if cfg.get("joint_pruning", False):
+                cfg["l0_end_weight"] = trial.suggest_categorical("l0_end_weight", [10.0, 20.0, 50.0])
+                cfg["classifier_dropout"] = trial.suggest_categorical("classifier_dropout", [0.1, 0.2, 0.3])
+                sampled_keys += ["l0_end_weight", "classifier_dropout"]
+
             print("SAMPLED THE FOLLOWING VALUES")
-            for k in ["skel_learning_rate", "bert_hidden_layers", "bert_hidden_dim", "bert_att_heads", "bert_intermediate_size"]:
+            for k in sampled_keys:
                 print(f"{k}={cfg[k]}")
             print("\n")
 
@@ -77,7 +108,7 @@ def main(config, n_trials, RESUME):
     assert config.endswith(".yaml")
     config_str = config.replace("/", "-")[:-5]
     study_name = f"slr_opt_config={config_str}"
-    storage_db = f"sqlite:////home/hatch5o6/groups/grp_asl_classification/nobackup/archive/SLR/sqlite_dbs/{study_name}.db"
+    storage_db = f"sqlite:////home/ccoulson/groups/grp_asl_classification/nobackup/archive/SLR/sqlite_dbs/{study_name}.db"
     if RESUME == False:
         if os.path.exists(storage_db):
             print("RESUME == False, deleting storage_db", storage_db)

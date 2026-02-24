@@ -87,7 +87,10 @@ class SignClassificationLightning(L.LightningModule):
         #----------------------------- LOSS -----------------------------#
         # Loss function
         class_weights_tensor, num_classes_in_training = self._compute_class_weights(self.config["train_csv"])
-        self.loss_fn = CrossEntropyLoss(weight=class_weights_tensor)
+        if self.config.get("use_class_weights", True):
+            self.loss_fn = CrossEntropyLoss(weight=class_weights_tensor)
+        else:
+            self.loss_fn = CrossEntropyLoss()
 
         #----------------------------- TRAINABLE PARAMETERS -----------------------------#
         next_idx = 0
@@ -124,10 +127,30 @@ class SignClassificationLightning(L.LightningModule):
             self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
             # Skeleton pruning layer
             if self.config["joint_pruning"] == True:
+                # Option to use random initialization to break symmetry
+                use_random_init = self.config.get("use_random_init", False)
                 self.joint_pruning = JointPruningModule(
                     num_joints=self.config["num_pose_points"],
-                    init_keep_prob=self.config["init_keep_probability"]
+                    init_keep_prob=self.config["init_keep_probability"],
+                    random_init=use_random_init,
+                    random_init_std=self.config.get("random_init_std", 0.1)
                 )
+
+            # Gating mechanism for sample-specific importance weighting
+            if self.config.get("use_gating", False):
+                gate_hidden = self.config.get("gate_hidden_dim", 64)
+                self.joint_gate = torch.nn.Sequential(
+                    torch.nn.Linear(num_coords, gate_hidden),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(gate_hidden, 1),
+                    torch.nn.Sigmoid()
+                )
+                print(f"\n\nGating Network:\n________________________________________")
+                print(f"Input: {num_coords} coords per joint")
+                print(f"Hidden: {gate_hidden}")
+                print(f"Output: 1 gate value per joint")
+                print(f"Parameters: ~{num_coords * gate_hidden + gate_hidden + gate_hidden + 1}")
+                print("\n\n")
 
         # # New Skeleton encoder [Batch, Frame, Joints, Points]
         # if "skeleton" in self.config["modalities"]:
@@ -184,11 +207,22 @@ class SignClassificationLightning(L.LightningModule):
             B, T, J, P = skeleton_keypoints.shape
             expected_coords = self.config.get("num_coords", 2)
             assert P == expected_coords, f"Expected {expected_coords} coordinates, got {P}"
+
+            # Apply L0 pruning mask (structural, global across all samples)
             if self.config["joint_pruning"] == True:
                 skeleton_keypoints = self.joint_pruning(skeleton_keypoints)
 
+            # Apply gating (sample-specific, content-based importance)
+            if self.config.get("use_gating", False):
+                # Compute gates from joint coordinates: (B, T, J, P) -> (B, T, J, 1)
+                gates = self.joint_gate(skeleton_keypoints)  # (B, T, J, 1)
+                # Apply gates (element-wise multiplication)
+                skeleton_keypoints = skeleton_keypoints * gates  # (B, T, J, P)
 
-            # old skeleton processing    
+                # Store gates for logging (detach to avoid affecting gradients)
+                self._last_gates = gates.detach()
+
+            # old skeleton processing
             # skeleton_keypoints = skeleton_keypoints.view(B, T, J * P)
             # skeleton_keypoints = self.skel_proj(skeleton_keypoints)
             # skel_output = self.skel_encoder(inputs_embeds=skeleton_keypoints).last_hidden_state
@@ -289,17 +323,61 @@ class SignClassificationLightning(L.LightningModule):
             # Log joint probability statistics periodically for visualization
             # Every 1000 steps, log distribution statistics
             if self.global_step % 1000 == 0:
-                joint_probs = self.joint_pruning.get_selection_probs()
+                joint_probs = self.joint_pruning.get_selection_probs().float()  # Convert to float32 for quantile
 
                 # Log percentiles to understand probability distribution
                 self.log("joint_prob_p25", torch.quantile(joint_probs, 0.25), on_step=True)
                 self.log("joint_prob_median", torch.median(joint_probs), on_step=True)
                 self.log("joint_prob_p75", torch.quantile(joint_probs, 0.75), on_step=True)
 
-                # Log top-K joint statistics
-                top_50_probs = torch.topk(joint_probs, k=50).values
+                # Log top-K joint statistics (cap at number of available joints)
+                k_log = min(50, len(joint_probs))
+                top_50_probs = torch.topk(joint_probs, k=k_log).values
                 self.log("top_50_avg_prob", top_50_probs.mean(), on_step=True)
                 self.log("top_50_min_prob", top_50_probs.min(), on_step=True)
+
+        # Log gating statistics (if using gating)
+        if self.config.get("use_gating", False) and hasattr(self, '_last_gates'):
+            # Average gates across batch and time: (B, T, J, 1) -> (J,)
+            avg_gates = self._last_gates.mean(dim=(0, 1, 3)).float()  # Convert to float32 for quantile
+
+            # Log gate statistics every step
+            self.log("gate_mean", avg_gates.mean(), on_step=True, on_epoch=True)
+            self.log("gate_std", avg_gates.std(), on_step=True, on_epoch=True)
+            self.log("gate_min", avg_gates.min(), on_step=True)
+            self.log("gate_max", avg_gates.max(), on_step=True)
+
+            # Periodically log detailed gate statistics
+            if self.global_step % 1000 == 0:
+                self.log("gate_p25", torch.quantile(avg_gates, 0.25), on_step=True)
+                self.log("gate_median", torch.median(avg_gates), on_step=True)
+                self.log("gate_p75", torch.quantile(avg_gates, 0.75), on_step=True)
+
+                # How many joints have high gates (> 0.7)?
+                high_gate_count = (avg_gates > 0.7).sum()
+                self.log("num_high_gate_joints", high_gate_count, on_step=True)
+
+                # Per-body-part gate means (using original 543-space indices)
+                selected_indices = self.config.get("selected_joint_indices", None)
+                if selected_indices is not None:
+                    orig_indices = selected_indices
+                else:
+                    orig_indices = list(range(self.config["num_pose_points"]))
+
+                # Classify each joint by body part
+                face_mask = torch.tensor([0 <= idx < 468 for idx in orig_indices])
+                pose_mask = torch.tensor([468 <= idx < 501 for idx in orig_indices])
+                lh_mask = torch.tensor([501 <= idx < 522 for idx in orig_indices])
+                rh_mask = torch.tensor([522 <= idx < 543 for idx in orig_indices])
+
+                if face_mask.any():
+                    self.log("gate_face_mean", avg_gates[face_mask].mean(), on_step=True)
+                if pose_mask.any():
+                    self.log("gate_pose_mean", avg_gates[pose_mask].mean(), on_step=True)
+                if lh_mask.any():
+                    self.log("gate_left_hand_mean", avg_gates[lh_mask].mean(), on_step=True)
+                if rh_mask.any():
+                    self.log("gate_right_hand_mean", avg_gates[rh_mask].mean(), on_step=True)
 
         self.log(
             "train_loss", 
@@ -330,25 +408,83 @@ class SignClassificationLightning(L.LightningModule):
 
         preds = torch.argmax(logits, dim=1)
         acc = (preds == labels).float().mean()
+
+        # Top-5 accuracy
+        k = min(5, logits.size(1))
+        top5_preds = logits.topk(k, dim=1).indices
+        top5_correct = top5_preds.eq(labels.unsqueeze(1)).any(dim=1).float().mean()
+
         self.log(
-            "val_loss", 
-            loss, 
-            on_step=True, 
+            "val_loss",
+            loss,
+            on_step=True,
             on_epoch=True,
             prog_bar=True,
             logger=True,
             batch_size=self.config["batch_size"]
         )
         self.log(
-            "val_acc", 
-            acc, 
-            on_step=True, 
+            "val_acc",
+            acc,
+            on_step=True,
             on_epoch=True,
             prog_bar=True,
             logger=True,
             batch_size=self.config["batch_size"]
         )
+        self.log(
+            "val_top5_acc",
+            top5_correct,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            batch_size=self.config["batch_size"]
+        )
+
+        # Store predictions and labels for per-class analysis at epoch end
+        if not hasattr(self, '_val_preds'):
+            self._val_preds = []
+            self._val_labels = []
+        self._val_preds.append(preds.detach().cpu())
+        self._val_labels.append(labels.detach().cpu())
+
         return loss
+
+    def on_validation_epoch_end(self):
+        """Log per-class accuracy summary at end of validation epoch."""
+        if hasattr(self, '_val_preds') and len(self._val_preds) > 0:
+            all_preds = torch.cat(self._val_preds)
+            all_labels = torch.cat(self._val_labels)
+
+            # Per-class accuracy
+            num_classes = self.classifier[-1].out_features
+            per_class_correct = torch.zeros(num_classes)
+            per_class_total = torch.zeros(num_classes)
+            for c in range(num_classes):
+                mask = all_labels == c
+                if mask.sum() > 0:
+                    per_class_total[c] = mask.sum()
+                    per_class_correct[c] = (all_preds[mask] == c).sum()
+
+            active_classes = per_class_total > 0
+            per_class_acc = torch.where(
+                active_classes,
+                per_class_correct / per_class_total.clamp(min=1),
+                torch.zeros_like(per_class_total)
+            )
+
+            # Log summary statistics
+            if active_classes.sum() > 0:
+                active_accs = per_class_acc[active_classes]
+                self.log("val_per_class_acc_mean", active_accs.mean(), logger=True)
+                self.log("val_per_class_acc_std", active_accs.std(), logger=True)
+                self.log("val_per_class_acc_min", active_accs.min(), logger=True)
+                self.log("val_per_class_acc_p25", torch.quantile(active_accs.float(), 0.25), logger=True)
+                self.log("val_per_class_acc_median", torch.median(active_accs), logger=True)
+
+            # Clear stored predictions
+            self._val_preds = []
+            self._val_labels = []
     
 
     # def test_step(self, batch, batch_idx):
@@ -456,6 +592,12 @@ class SignClassificationLightning(L.LightningModule):
                     "lr": self.config["skel_learning_rate"],
                     "weight_decay": 0.0
                 })
+            if self.config.get("use_gating", False):
+                optimizer_configs.append({
+                    "params": self.joint_gate.parameters(),
+                    "lr": self.config.get("gate_learning_rate", self.config["skel_learning_rate"]),
+                    "weight_decay": self.config["weight_decay"]
+                })
         optimizer_configs += [{
             "params": [self.modality_weights],
             "lr": self.config["class_learning_rate"],
@@ -467,22 +609,38 @@ class SignClassificationLightning(L.LightningModule):
             "weight_decay": self.config["weight_decay"]
         }]
 
-        optimizer = optim.AdamW(optimizer_configs)
+        if self.config.get("use_adam_optimizer", False):
+            optimizer = optim.Adam(optimizer_configs)
+        else:
+            optimizer = optim.AdamW(optimizer_configs)
 
-        lr_lambda = get_linear_schedule_with_warmup(
-            num_warmup_steps=self.config["warmup_steps"],
-            num_training_steps=self.config["max_steps"]
-        )
-        scheduler = LambdaLR(optimizer, lr_lambda)
-
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "step",
-                "frequency": 1
+        if self.config.get("use_reduce_lr_on_plateau", False):
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="max", factor=0.5, patience=5, verbose=True
+            )
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "monitor": "val_acc",
+                    "interval": "epoch",
+                    "frequency": 1
+                }
             }
-        }
+        else:
+            lr_lambda = get_linear_schedule_with_warmup(
+                num_warmup_steps=self.config["warmup_steps"],
+                num_training_steps=self.config["max_steps"]
+            )
+            scheduler = LambdaLR(optimizer, lr_lambda)
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "step",
+                    "frequency": 1
+                }
+            }
 
     def _compute_class_weights(self, csv_file):
         annotations = self._read_label_annotations(csv_file)

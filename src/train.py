@@ -74,7 +74,8 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
         num_frames=video_mae_config.num_frames,
         modalities=modalities,
         use_tslformer_joints=config.get("use_tslformer_joints", False),
-        use_z_coord=config.get("use_z_coord", False)
+        use_z_coord=config.get("use_z_coord", False),
+        selected_joint_indices=config.get("selected_joint_indices", None)
     )
     train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
 
@@ -85,7 +86,8 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
         num_frames=video_mae_config.num_frames,
         modalities=modalities,
         use_tslformer_joints=config.get("use_tslformer_joints", False),
-        use_z_coord=config.get("use_z_coord", False)
+        use_z_coord=config.get("use_z_coord", False),
+        selected_joint_indices=config.get("selected_joint_indices", None)
     )
     val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
 
@@ -204,7 +206,8 @@ def test(config):
         num_frames=video_mae_config.num_frames,
         modalities=modalities,
         use_tslformer_joints=config.get("use_tslformer_joints", False),
-        use_z_coord=config.get("use_z_coord", False)
+        use_z_coord=config.get("use_z_coord", False),
+        selected_joint_indices=config.get("selected_joint_indices", None)
     )
     test_dataloader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)
 
@@ -359,11 +362,21 @@ def read_config(f):
     config["new_learning_rate"] = float(config["new_learning_rate"])
     config["skel_learning_rate"] = float(config["skel_learning_rate"])
     config["class_learning_rate"] = float(config["class_learning_rate"])
+    if "gate_learning_rate" in config:
+        config["gate_learning_rate"] = float(config["gate_learning_rate"])
     config["warmup_steps"] = round(0.05 * config["max_steps"])
-    # rank_zero_info(f"CONFIG: {f}")
-    # for k, v in config.items():
-    #     rank_zero_info(f"\t-{k}=`{v}`, {type(v)}")
-    # rank_zero_info("\n\n")
+
+    # Load custom joint indices if specified
+    if "joint_indices_file" in config and config["joint_indices_file"] is not None:
+        joint_indices_path = config["joint_indices_file"]
+        print(f"Loading joint indices from: {joint_indices_path}")
+        with open(joint_indices_path) as jf:
+            config["selected_joint_indices"] = json.load(jf)
+        print(f"  Loaded {len(config['selected_joint_indices'])} joint indices")
+        assert len(config["selected_joint_indices"]) == config["num_pose_points"], \
+            (f"joint_indices_file has {len(config['selected_joint_indices'])} indices "
+             f"but num_pose_points is {config['num_pose_points']}")
+
     return config
 
 def get_args():

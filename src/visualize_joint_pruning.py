@@ -194,6 +194,72 @@ def plot_top_k_joints_bar(joint_probs, save_path, k=50):
     print(f"Saved bar plot to {save_path}")
 
 
+def plot_top_k_joints_bar_reduced(joint_probs, save_path, k=50, source_indices=None):
+    """
+    Bar plot for reduced-joint models (non-543).
+    Maps joints back to 543-space for body-part coloring.
+    """
+    num_joints = len(joint_probs)
+    k = min(k, num_joints)
+    top_k_values, top_k_local = torch.topk(joint_probs, k=k)
+
+    fig, ax = plt.subplots(figsize=(16, 7))
+    colors = []
+    labels = []
+
+    for local_idx in top_k_local:
+        local_idx_val = local_idx.item()
+        if source_indices is not None:
+            orig_idx = source_indices[local_idx_val]
+        else:
+            orig_idx = local_idx_val
+
+        if orig_idx < 468:
+            colors.append(JOINT_REGIONS['face']['color'])
+            labels.append(f'Face-{orig_idx}')
+        elif orig_idx < 501:
+            colors.append(JOINT_REGIONS['pose']['color'])
+            pose_idx = orig_idx - 468
+            pose_name = POSE_LANDMARKS[pose_idx] if pose_idx < len(POSE_LANDMARKS) else str(pose_idx)
+            labels.append(f'Pose:{pose_name}')
+        elif orig_idx < 522:
+            colors.append(JOINT_REGIONS['left_hand']['color'])
+            hand_idx = orig_idx - 501
+            hand_name = HAND_LANDMARKS[hand_idx] if hand_idx < len(HAND_LANDMARKS) else str(hand_idx)
+            labels.append(f'LH:{hand_name}')
+        else:
+            colors.append(JOINT_REGIONS['right_hand']['color'])
+            hand_idx = orig_idx - 522
+            hand_name = HAND_LANDMARKS[hand_idx] if hand_idx < len(HAND_LANDMARKS) else str(hand_idx)
+            labels.append(f'RH:{hand_name}')
+
+    bars = ax.bar(range(k), top_k_values.detach().cpu().numpy(),
+                  color=colors, edgecolor='black', linewidth=0.5)
+    ax.axhline(y=0.5, color='black', linestyle='--', linewidth=2, zorder=5)
+
+    legend_patches = [
+        mpatches.Patch(color=JOINT_REGIONS['face']['color'], label="Face"),
+        mpatches.Patch(color=JOINT_REGIONS['pose']['color'], label="Pose"),
+        mpatches.Patch(color=JOINT_REGIONS['left_hand']['color'], label="Left Hand"),
+        mpatches.Patch(color=JOINT_REGIONS['right_hand']['color'], label="Right Hand"),
+    ]
+    ax.legend(handles=legend_patches, loc='upper right', fontsize=10, title='Body Region')
+
+    ax.set_xticks(range(k))
+    ax.set_xticklabels(labels, rotation=90, fontsize=7, ha='center')
+    ax.set_xlabel('Joint (by importance rank)', fontsize=12)
+    ax.set_ylabel('Keep Probability', fontsize=12)
+    ax.set_ylim(0, 1.05)
+    ax.set_title(
+        f'Top-{k} Most Important Joints ({num_joints}-joint model)',
+        fontsize=14, fontweight='bold'
+    )
+    ax.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"Saved reduced bar plot to {save_path}")
+
+
 def plot_pruning_summary(joint_probs, save_path):
     """
     Summary statistics plot with distribution, sorted importance curve, and body part breakdown.
@@ -304,10 +370,29 @@ def plot_pruning_summary(joint_probs, save_path):
     print(f"Saved summary plot to {save_path}")
 
 
+def compute_body_part_breakdown(original_indices):
+    """Compute body part counts from original 543-space indices."""
+    breakdown = {'face': 0, 'pose': 0, 'left_hand': 0, 'right_hand': 0}
+    for idx in original_indices:
+        if idx < 468:
+            breakdown['face'] += 1
+        elif idx < 501:
+            breakdown['pose'] += 1
+        elif idx < 522:
+            breakdown['left_hand'] += 1
+        elif idx < 543:
+            breakdown['right_hand'] += 1
+    return breakdown
+
+
 def analyze_checkpoint(checkpoint_path, output_dir, config_path):
     """
     Load checkpoint and create all visualizations.
+    Supports both 543-joint models and reduced-joint (informed selection) models.
     """
+    import json as json_mod
+    import getpass
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -316,17 +401,25 @@ def analyze_checkpoint(checkpoint_path, output_dir, config_path):
         config = yaml.safe_load(f)
 
     # Ensure required fields have defaults for checkpoint loading
-    # These are normally set by read_config() in train.py but not present in yaml
     config.setdefault("num_frames", "video_mae")
     config.setdefault("batch_size", config.get("effective_batch_size", 32) // config.get("n_gpus", 4))
     config.setdefault("bert_dropout", 0.0)
     config.setdefault("warmup_steps", round(0.05 * config.get("max_steps", 200000)))
 
-    # Replace hatch5o6 with current user (same as read_config in train.py)
-    import json, getpass
-    config_str = json.dumps(config)
+    # Replace hatch5o6 with current user
+    config_str = json_mod.dumps(config)
     config_str = config_str.replace("hatch5o6", getpass.getuser())
-    config = json.loads(config_str)
+    config = json_mod.loads(config_str)
+
+    # Load source indices if this is an informed selection model
+    source_indices = None
+    if "joint_indices_file" in config and config["joint_indices_file"] is not None:
+        with open(config["joint_indices_file"]) as jf:
+            source_indices = json_mod.load(jf)
+        config["selected_joint_indices"] = source_indices
+        print(f"Loaded {len(source_indices)} source indices from {config['joint_indices_file']}")
+    if "gate_learning_rate" in config:
+        config["gate_learning_rate"] = float(config["gate_learning_rate"])
 
     # Load model
     model = SignClassificationLightning.load_from_checkpoint(
@@ -338,13 +431,17 @@ def analyze_checkpoint(checkpoint_path, output_dir, config_path):
     # Get joint probabilities
     if hasattr(model, 'joint_pruning'):
         joint_probs = model.joint_pruning.get_selection_probs()
+        num_joints = len(joint_probs)
+        is_full_543 = (num_joints == 543)
 
         print(f"\n{'='*60}")
         print("JOINT PRUNING ANALYSIS")
         print(f"{'='*60}")
 
         summary = model.joint_pruning.get_summary()
-        print(f"\nActive joints: {summary['num_active']}/{summary['num_total']}")
+        print(f"\nModel joints: {num_joints}" +
+              (f" (from 543 via informed selection)" if not is_full_543 else ""))
+        print(f"Active joints: {summary['num_active']}/{summary['num_total']}")
         print(f"Pruning ratio: {summary['pruning_ratio']:.1%}")
         print(f"Avg probability: {summary['avg_prob']:.3f}")
         print(f"Min probability: {summary['min_prob']:.3f}")
@@ -355,23 +452,34 @@ def analyze_checkpoint(checkpoint_path, output_dir, config_path):
         print("GENERATING FIGURES")
         print(f"{'='*60}\n")
 
-        plot_joint_importance_heatmap(
-            joint_probs,
-            output_dir / "joint_importance_heatmap.png"
-        )
+        # Full 543-joint visualizations only for 543-joint models
+        if is_full_543:
+            plot_joint_importance_heatmap(
+                joint_probs,
+                output_dir / "joint_importance_heatmap.png"
+            )
+            plot_top_k_joints_bar(
+                joint_probs,
+                output_dir / "top_50_joints.png",
+                k=50
+            )
+        else:
+            # For reduced models, plot a bar chart of all joints
+            k_bar = min(num_joints, 50)
+            plot_top_k_joints_bar_reduced(
+                joint_probs,
+                output_dir / f"top_{k_bar}_joints.png",
+                k=k_bar,
+                source_indices=source_indices
+            )
 
-        plot_top_k_joints_bar(
-            joint_probs,
-            output_dir / "top_50_joints.png",
-            k=50
-        )
-
+        # Pruning summary works for any number of joints
         plot_pruning_summary(
             joint_probs,
             output_dir / "pruning_summary.png"
         )
 
-        # Save probabilities to CSV for custom analysis
+        # Save probabilities to CSV
         np.savetxt(
             output_dir / "joint_probabilities.csv",
             joint_probs.detach().cpu().numpy(),
@@ -380,6 +488,39 @@ def analyze_checkpoint(checkpoint_path, output_dir, config_path):
             comments=''
         )
         print(f"\nSaved raw probabilities to {output_dir / 'joint_probabilities.csv'}")
+
+        # Save model_metrics.json for paper analysis
+        probs_np = joint_probs.detach().cpu().numpy()
+        orig_indices = source_indices if source_indices else list(range(543))
+        body_part_breakdown = compute_body_part_breakdown(orig_indices)
+
+        # Active joints by body part (prob > 0.5)
+        active_mask = probs_np > 0.5
+        active_indices = [orig_indices[i] for i in range(len(orig_indices)) if active_mask[i]]
+        active_breakdown = compute_body_part_breakdown(active_indices)
+
+        model_metrics = {
+            'num_joints': num_joints,
+            'num_active_joints': int(summary['num_active']),
+            'pruning_ratio': float(summary['pruning_ratio']),
+            'source_body_part_breakdown': body_part_breakdown,
+            'active_body_part_breakdown': active_breakdown,
+            'probability_stats': {
+                'mean': float(probs_np.mean()),
+                'std': float(probs_np.std()),
+                'min': float(probs_np.min()),
+                'max': float(probs_np.max()),
+                'p25': float(np.percentile(probs_np, 25)),
+                'median': float(np.median(probs_np)),
+                'p75': float(np.percentile(probs_np, 75)),
+            },
+            'checkpoint': checkpoint_path,
+            'config': config_path,
+        }
+
+        with open(output_dir / "model_metrics.json", 'w') as f:
+            json_mod.dump(model_metrics, f, indent=2)
+        print(f"Saved model metrics to {output_dir / 'model_metrics.json'}")
 
         print(f"\n{'='*60}")
         print("DONE! Check output directory for figures.")

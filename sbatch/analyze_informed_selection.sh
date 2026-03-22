@@ -28,7 +28,7 @@ conda activate asl
 MODELS_DIR="/home/${USER}/groups/grp_asl_classification/nobackup/archive/SLR/models/informed_selection"
 OUTPUT_DIR="${MODELS_DIR}/paper_figures"
 
-python src/analyze_informed_selection.py \
+python src/analysis/analyze_informed_selection.py \
     --models-dir "$MODELS_DIR" \
     --output-dir "$OUTPUT_DIR"
 

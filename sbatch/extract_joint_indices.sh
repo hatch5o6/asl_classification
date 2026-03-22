@@ -95,7 +95,7 @@ echo "=========================================="
 
 # Step 2: Extract joint probabilities and generate figures
 echo "Step 1/2: Extracting joint probabilities..."
-python src/visualize_joint_pruning.py \
+python src/analysis/visualize_joint_pruning.py \
     --checkpoint "$BEST_CHECKPOINT" \
     --config "$CONFIG_PATH" \
     --output "$FIGURES_DIR"
@@ -109,7 +109,7 @@ fi
 # Step 3: Generate top-K index files
 echo ""
 echo "Step 2/2: Generating top-K index files (k=$K_VALUES)..."
-SELECT_CMD="python src/select_top_k_joints.py \
+SELECT_CMD="python src/selection/select_top_k_joints.py \
     --probabilities $PROBS_CSV \
     --k $K_VALUES \
     --output-dir $OUTPUT_DIR \
@@ -131,8 +131,18 @@ echo "=========================================="
 # Step 4 (optional): Chain training job
 if [ -n "$TRAIN_CONFIG" ]; then
     echo ""
-    # Derive job name from config filename (e.g. iterative_48.yaml -> iterative_48)
-    TRAIN_JOB_NAME=$(basename "$TRAIN_CONFIG" .yaml)
+    # Derive job name from config: prefix with dataset so names are unique across datasets.
+    # e.g. configs/asl_citizen/informed_selection/iterative_100.yaml -> asl_iterative_100
+    # e.g. configs/gsl/informed_selection/iterative_100.yaml         -> gsl_iterative_100
+    # e.g. configs/informed_selection/iterative_100.yaml             -> iterative_100
+    BASE_NAME=$(basename "$TRAIN_CONFIG" .yaml)
+    PARENT_DIR=$(basename "$(dirname "$(dirname "$TRAIN_CONFIG")")")
+    case "$PARENT_DIR" in
+        asl_citizen)  TRAIN_JOB_NAME="asl_${BASE_NAME}" ;;
+        gsl)          TRAIN_JOB_NAME="gsl_${BASE_NAME}" ;;
+        multilingual) TRAIN_JOB_NAME="multi_${BASE_NAME}" ;;
+        *)            TRAIN_JOB_NAME="$BASE_NAME" ;;
+    esac
     echo "Submitting chained training job: $TRAIN_CONFIG (job-name: $TRAIN_JOB_NAME)"
     TRAIN_JOB=$(sbatch --job-name="$TRAIN_JOB_NAME" sbatch/train_informed_selection.sh "$TRAIN_CONFIG" | grep -oP '\d+')
     echo "Submitted training job: $TRAIN_JOB"

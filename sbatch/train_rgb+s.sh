@@ -20,7 +20,7 @@ export HF_HUB_OFFLINE=1
 conda init
 conda activate asl
 
-python src/clean_slurm_outputs.py
+python src/utils/clean_slurm_outputs.py
 
 nvidia-smi
 
@@ -28,4 +28,4 @@ srun python src/train.py \
     -c configs/rgb+s.yaml \
     -m TRAIN
 
-python src/clean_slurm_outputs.py --user %u
+python src/utils/clean_slurm_outputs.py --user %u

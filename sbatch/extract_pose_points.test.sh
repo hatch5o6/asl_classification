@@ -13,7 +13,7 @@
 
 
 
-python src/pose_points.py \
+python src/pose/pose_points.py \
     --input_path /home/$USER/groups/grp_asl_classification/nobackup/archive/AUTSL/test/test \
     --output_path /home/$USER/groups/grp_asl_classification/nobackup/archive/AUTSL/test/test_skel \
     --mode extract

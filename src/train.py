@@ -7,18 +7,21 @@ import json
 
 import torch
 torch.set_float32_matmul_precision("medium")
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
+import numpy as np
 import lightning as L
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor, Callback
 from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
+from lightning.pytorch.strategies import DDPStrategy
+from datetime import timedelta
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
 from pytorch_lightning.utilities import rank_zero_info, rank_zero_only
 from transformers import VideoMAEImageProcessor, VideoMAEConfig
 from sklearn.metrics import classification_report
 
-from asl_dataset import RGBDSkel_Dataset
-from lightning_asl import SignClassificationLightning
+from data.asl_dataset import RGBDSkel_Dataset
+from models.lightning_asl import SignClassificationLightning
 
 video_mae_config = VideoMAEConfig()
 
@@ -67,6 +70,19 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     else:
         assert isinstance(num_frames, int)
 
+    # Build augmentation config for training dataset (empty dict = no augmentation)
+    augment_config = {}
+    if config.get("augment_skeleton", False):
+        augment_config["spatial"] = True
+        augment_config["scale_range"] = tuple(config.get("augment_scale_range", [0.9, 1.1]))
+        augment_config["rotation_deg"] = config.get("augment_rotation_deg", 15.0)
+        augment_config["translate_range"] = config.get("augment_translate_range", 0.1)
+        augment_config["temporal"] = config.get("augment_temporal", True)
+        augment_config["speed_range"] = tuple(config.get("augment_speed_range", [0.8, 1.2]))
+        augment_config["joint_noise"] = config.get("augment_joint_noise", True)
+        augment_config["noise_std"] = config.get("augment_noise_std", 0.02)
+        rank_zero_info(f"Skeleton augmentation enabled: {augment_config}")
+
     # load train dataloader
     train_dataset = RGBDSkel_Dataset(
         annotations=config["train_csv"],
@@ -75,9 +91,39 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
         modalities=modalities,
         use_tslformer_joints=config.get("use_tslformer_joints", False),
         use_z_coord=config.get("use_z_coord", False),
-        selected_joint_indices=config.get("selected_joint_indices", None)
+        selected_joint_indices=config.get("selected_joint_indices", None),
+        augment_config=augment_config,
     )
-    train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
+
+    # Signer-balanced sampling: weight each sample inversely by its signer's count
+    train_shuffle = True
+    train_sampler = None
+    if config.get("signer_balanced_sampling", False):
+        signer_map_file = config["signer_map_file"]
+        rank_zero_info(f"Loading signer map from {signer_map_file}")
+        with open(signer_map_file) as f:
+            signer_map = json.load(f)  # {video_filename: signer_id}
+        # Map each train sample to a signer via its video/skel path
+        from collections import Counter
+        sample_signers = []
+        for rgb_path, depth_path, skel_path, label in train_dataset.annotations:
+            # Extract video stem from skel_path or rgb_path
+            path = skel_path if skel_path.strip() else rgb_path
+            basename = os.path.basename(path)
+            # Strip _landmarks.npy for skeleton files
+            stem = basename.replace("_landmarks.npy", "").replace(".mp4", "")
+            video_key = stem + ".mp4"
+            signer = signer_map.get(video_key, "unknown")
+            sample_signers.append(signer)
+        signer_counts = Counter(sample_signers)
+        weights = [1.0 / signer_counts[s] for s in sample_signers]
+        train_sampler = WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+        train_shuffle = False  # sampler and shuffle are mutually exclusive
+        rank_zero_info(f"Signer-balanced sampling: {len(signer_counts)} signers, "
+                       f"min={min(signer_counts.values())} max={max(signer_counts.values())}")
+
+    train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"],
+                                  shuffle=train_shuffle, sampler=train_sampler)
 
     # load val dataloader
     val_dataset = RGBDSkel_Dataset(
@@ -125,7 +171,10 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
 
     # set parallelization
     if config["n_gpus"] > 1:
-        strategy = "ddp_find_unused_parameters_true"
+        strategy = DDPStrategy(
+            find_unused_parameters=True,
+            timeout=timedelta(minutes=60)
+        )
     else:
         strategy = "auto"
 
@@ -165,6 +214,24 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     return val_acc
 
 
+def _collect_logits(trainer, model, dataloader):
+    """Run predict and return stacked logits (N, C) instead of argmax predictions."""
+    batch_results = trainer.predict(model, dataloaders=dataloader)
+    all_logits = []
+    for logits, _labels in batch_results:
+        all_logits.append(logits.cpu())
+    return torch.cat(all_logits, dim=0)
+
+
+def _collect_labels(trainer, model, dataloader):
+    """Run predict and return labels as a flat list."""
+    batch_results = trainer.predict(model, dataloaders=dataloader)
+    labels = []
+    for _logits, batch_labels in batch_results:
+        labels += batch_labels.cpu().tolist()
+    return labels
+
+
 def test(config):
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     print("WORLD_SIZE:", world_size)
@@ -199,7 +266,7 @@ def test(config):
     else:
         assert isinstance(num_frames, int)
 
-    # load test dataloader
+    # load test dataloader (no augmentation for standard test)
     test_dataset = RGBDSkel_Dataset(
         annotations=config["test_csv"],
         processor=processor,
@@ -242,19 +309,63 @@ def test(config):
         precision="16-mixed"
     )
 
-    batch_predictions = trainer.predict(
-        lightning_model,
-        dataloaders=test_dataloader
-    )
-    print("BATCH PREDICTIONS")
-    print(batch_predictions)
+    # ── Test-time augmentation (TTA) ──────────────────────────────────────
+    tta_runs = config.get("tta_augments", 0)
+    if tta_runs > 0:
+        print(f"TTA enabled: {tta_runs} augmented passes + 1 clean pass")
+        from data.asl_dataset import augment_skeleton_spatial, augment_skeleton_temporal, augment_skeleton_joint_noise
 
-    predictions = []
-    pred_labels = []
-    for b, batch in enumerate(batch_predictions):
-        b_preds, b_labels = batch
-        predictions += b_preds.cpu().tolist()
-        pred_labels += b_labels.cpu().tolist()
+        # 1) Clean pass — collect logits
+        all_logits = _collect_logits(trainer, lightning_model, test_dataloader)
+
+        # 2) Augmented passes
+        for tta_i in range(tta_runs):
+            print(f"  TTA pass {tta_i + 1}/{tta_runs}")
+            tta_aug_config = {
+                "spatial": True,
+                "scale_range": tuple(config.get("tta_scale_range", [0.95, 1.05])),
+                "rotation_deg": config.get("tta_rotation_deg", 10.0),
+                "translate_range": config.get("tta_translate_range", 0.05),
+                "temporal": True,
+                "speed_range": tuple(config.get("tta_speed_range", [0.9, 1.1])),
+                "joint_noise": True,
+                "noise_std": config.get("tta_noise_std", 0.01),
+            }
+            tta_dataset = RGBDSkel_Dataset(
+                annotations=config["test_csv"],
+                processor=processor,
+                num_frames=video_mae_config.num_frames,
+                modalities=modalities,
+                use_tslformer_joints=config.get("use_tslformer_joints", False),
+                use_z_coord=config.get("use_z_coord", False),
+                selected_joint_indices=config.get("selected_joint_indices", None),
+                augment_config=tta_aug_config,
+            )
+            tta_loader = DataLoader(tta_dataset, batch_size=config["batch_size"], shuffle=False)
+            aug_logits = _collect_logits(trainer, lightning_model, tta_loader)
+            all_logits = all_logits + aug_logits
+
+        # Average logits across all passes
+        avg_logits = all_logits / (1 + tta_runs)
+        predictions = avg_logits.argmax(dim=1).tolist()
+        pred_labels = _collect_labels(trainer, lightning_model, test_dataloader)
+    else:
+        # Standard single-pass prediction
+        batch_predictions = trainer.predict(
+            lightning_model,
+            dataloaders=test_dataloader
+        )
+        print("BATCH PREDICTIONS")
+        print(batch_predictions)
+
+        predictions = []
+        pred_labels = []
+        for b, batch in enumerate(batch_predictions):
+            b_logits, b_labels = batch
+            b_preds = torch.argmax(b_logits, dim=1)
+            predictions += b_preds.cpu().tolist()
+            pred_labels += b_labels.cpu().tolist()
+
     print("predictions")
     print(predictions)
     print("pred labels")

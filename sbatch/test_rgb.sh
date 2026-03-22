@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --time=72:00:00   # walltime.  hours:minutes:seconds
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=4
 #SBATCH --nodes=1
 #SBATCH --mem=1024000M
 #SBATCH --gpus=1
@@ -17,10 +17,12 @@ export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
 
+source ~/.bashrc
+
 conda init
 conda activate asl
 
-python src/clean_slurm_outputs.py
+python src/utils/clean_slurm_outputs.py --user "$USER"
 
 nvidia-smi
 
@@ -28,4 +30,4 @@ srun python src/train.py \
     -c configs/rgb.yaml \
     -m TEST
 
-python src/clean_slurm_outputs.py --user %u
+python src/utils/clean_slurm_outputs.py --user "$USER"

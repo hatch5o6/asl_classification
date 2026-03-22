@@ -13,5 +13,5 @@
 #SBATCH --job-name=posepoints_val
 #SBATCH --qos=matrix
 
-python src/create_pose_points.py \
+python src/pose/create_pose_points.py \
     -d /home/$USER/groups/grp_asl_classification/nobackup/archive/AUTSL/val/val

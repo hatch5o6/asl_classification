@@ -18,4 +18,4 @@ conda activate asl
 
 MODELS_DIR="/home/$USER/groups/grp_asl_classification/nobackup/archive/SLR/models"
 
-python src/analyze_pruning_sweep.py --models_dir "$MODELS_DIR"
+python src/analysis/analyze_pruning_sweep.py --models_dir "$MODELS_DIR"

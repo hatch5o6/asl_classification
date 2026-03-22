@@ -1,10 +1,10 @@
 #!/bin/bash
 
 #SBATCH --time=72:00:00
-#SBATCH --ntasks-per-node=4
+#SBATCH --ntasks-per-node=8
 #SBATCH --nodes=1
 #SBATCH --mem=1024000M
-#SBATCH --gpus=4
+#SBATCH --gpus=8
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -47,7 +47,7 @@ source ~/.bashrc
 conda init
 conda activate asl
 
-python src/clean_slurm_outputs.py --user "$USER"
+python src/utils/clean_slurm_outputs.py --user "$USER"
 
 nvidia-smi
 
@@ -62,7 +62,7 @@ else
         -m "$MODE"
 fi
 
-python src/clean_slurm_outputs.py --user "$USER"
+python src/utils/clean_slurm_outputs.py --user "$USER"
 
 echo "=========================================="
 echo "End time: $(date)"

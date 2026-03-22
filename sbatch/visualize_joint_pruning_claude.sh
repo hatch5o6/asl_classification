@@ -67,7 +67,7 @@ fi
 echo "Best checkpoint: $BEST_CHECKPOINT"
 echo "========================================"
 
-python src/visualize_joint_pruning.py \
+python src/analysis/visualize_joint_pruning.py \
     --checkpoint "$BEST_CHECKPOINT" \
     --config "$CONFIG_PATH" \
     --output "$OUTPUT_DIR"

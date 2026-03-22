@@ -12,7 +12,7 @@
 #SBATCH --qos=dw87
 
 
-python src/pose_points.py \
+python src/pose/pose_points.py \
     --input_path /home/$USER/groups/grp_asl_classification/nobackup/archive/AUTSL/val/val \
     --output_path /home/$USER/groups/grp_asl_classification/nobackup/archive/AUTSL/val/val_skel \
     --mode extract

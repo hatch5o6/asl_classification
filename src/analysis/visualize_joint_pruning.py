@@ -6,14 +6,17 @@ Usage:
     python visualize_joint_pruning.py --checkpoint path/to/checkpoint.ckpt --output figures/
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
-from pathlib import Path
 import argparse
-from lightning_asl import SignClassificationLightning
+from models.lightning_asl import SignClassificationLightning
 import yaml
 
 

@@ -22,7 +22,7 @@ source ~/.bashrc
 conda init
 conda activate asl
 
-python src/clean_slurm_outputs.py --user "$USER"
+python src/utils/clean_slurm_outputs.py --user "$USER"
 
 nvidia-smi
 
@@ -30,4 +30,4 @@ srun python src/train.py \
     -c configs/s_tslformer_claude.yaml \
     -m TEST
 
-python src/clean_slurm_outputs.py --user "$USER"
+python src/utils/clean_slurm_outputs.py --user "$USER"

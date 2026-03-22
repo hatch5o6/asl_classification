@@ -1,8 +1,47 @@
+# === Generated outputs ===
+lightning_logs/
+figures/
+analysis/
+docs/
 **/slurm_outputs/
-data/test.csv
-data/train.csv
-data/val.csv
+
+# === Large data files ===
 data/*.npy
 data/*.mp4
-**/__pycache__/
-*.md
+data/train.csv
+data/val.csv
+data/test.csv
+data/test_brev.csv
+data/*/train.csv
+data/*/val.csv
+data/*/test.csv
+data/*/test_*.csv
+data/gsl_merged_continuous.csv
+
+# === Python artifacts ===
+__pycache__/
+*.pyc
+*.ipynb
+
+# === Generated images ===
+*.png
+*.pdf
+
+# === Internal notes / non-replication files ===
+claude.md
+CHANGES_SUMMARY.md
+GATING_QUICKSTART.md
+INFORMED_SELECTION_REVIEW.md
+L0_FIXES_SUMMARY.md
+context_visualizations.md
+avg_train_lens.json
+avg_train_lens.metrics.json
+
+# === Optuna databases ===
+*.db
+
+# === Editor / OS ===
+.vscode/
+*.swp
+*.swo
+.DS_Store

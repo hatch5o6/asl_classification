@@ -1,0 +1,31 @@
+{
+  "10": {
+    "k": 10,
+    "body_part_breakdown": {
+      "face": 0,
+      "pose": 0,
+      "left_hand": 4,
+      "right_hand": 6
+    },
+    "probability_stats": {
+      "selected_min": 0.941373884677887,
+      "selected_max": 0.946318507194519,
+      "selected_mean": 0.9440387308597564,
+      "excluded_min": 0.9371224045753479,
+      "excluded_max": 0.9408720135688782,
+      "excluded_mean": 0.9393029042652675
+    },
+    "indices": [
+      505,
+      506,
+      509,
+      519,
+      522,
+      526,
+      527,
+      530,
+      534,
+      540
+    ]
+  }
+}

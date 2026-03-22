@@ -13,25 +13,25 @@ Each panel renders:
 Usage
 -----
 # Preview with hardcoded canonical positions (no data needed):
-    python src/visualize_skeleton_selection.py \\
+    python src/analysis/visualize_skeleton_selection.py \\
         --indices-dir data/informed_selection/topk \\
         --output-dir figures/skeleton_selection
 
 # Paper-quality figure using a real skeleton sample:
-    python src/visualize_skeleton_selection.py \\
+    python src/analysis/visualize_skeleton_selection.py \\
         --indices-dir data/informed_selection/topk \\
         --ref-npy /path/to/any_landmarks.npy \\
         --output-dir figures/skeleton_selection
 
 # Average positions over many real samples (most robust):
-    python src/visualize_skeleton_selection.py \\
+    python src/analysis/visualize_skeleton_selection.py \\
         --indices-dir data/informed_selection/topk \\
         --ref-csv data/val.csv \\
         --ref-n-samples 50 \\
         --output-dir figures/skeleton_selection
 
 # Full suite: progression + topk-vs-iterative comparison:
-    python src/visualize_skeleton_selection.py \\
+    python src/analysis/visualize_skeleton_selection.py \\
         --indices-dir data/informed_selection/topk \\
         --iterative-dir data/informed_selection/iterative \\
         --ref-csv data/val.csv \\

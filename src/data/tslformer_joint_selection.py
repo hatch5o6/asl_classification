@@ -14,7 +14,7 @@ This is DIFFERENT from joint_pruning.py which uses learnable parameters.
 This is a FIXED, DETERMINISTIC selection matching TSLFormer's approach.
 
 Usage:
-    from tslformer_joint_selection import select_tslformer_joints
+    from data.tslformer_joint_selection import select_tslformer_joints
 
     # In dataset loader
     keypoints = np.load(path)  # (T, 543, 2)

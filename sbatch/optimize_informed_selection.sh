@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --mem=256000M
-#SBATCH --gpus=4
+#SBATCH --gpus=8
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -51,16 +51,16 @@ source ~/.bashrc
 conda init
 conda activate asl
 
-python src/clean_slurm_outputs.py --user "$USER"
+python src/utils/clean_slurm_outputs.py --user "$USER"
 
 nvidia-smi
 
-python src/optimize_hyperparams.py \
+python src/utils/optimize_hyperparams.py \
     -c "$CONFIG_PATH" \
     -n "$N_TRIALS" \
     $RESUME_FLAG
 
-python src/clean_slurm_outputs.py --user "$USER"
+python src/utils/clean_slurm_outputs.py --user "$USER"
 
 echo "=========================================="
 echo "End time: $(date)"

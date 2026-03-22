@@ -5,7 +5,7 @@ Collects results from all trained models (topk and iterative) and generates
 publication-quality figures comparing approaches.
 
 Usage:
-    python src/analyze_informed_selection.py \
+    python src/analysis/analyze_informed_selection.py \
         --models-dir /path/to/models/informed_selection/ \
         --output-dir /path/to/paper_figures/
 

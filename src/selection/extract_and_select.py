@@ -9,14 +9,14 @@ Used in Approach 2 (Iterative Cascade):
   4. Selects top K and writes a new indices JSON for the next stage
 
 Usage:
-    python src/extract_and_select.py \
+    python src/selection/extract_and_select.py \
         --checkpoint models/iterative_270/checkpoints/best.ckpt \
         --config configs/informed_selection/iterative_270.yaml \
         --target-k 100 \
         --output data/informed_selection/iterative/iter_100_indices.json
 
     # Auto-detect best checkpoint:
-    python src/extract_and_select.py \
+    python src/selection/extract_and_select.py \
         --model-dir models/informed_selection/iterative_270 \
         --config configs/informed_selection/iterative_270.yaml \
         --target-k 100 \
@@ -139,8 +139,8 @@ def main():
     # Load model
     # Import here to avoid import issues when running standalone
     import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-    from lightning_asl import SignClassificationLightning
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+    from models.lightning_asl import SignClassificationLightning
 
     model = SignClassificationLightning.load_from_checkpoint(
         checkpoint_path, config=config

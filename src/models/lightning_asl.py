@@ -8,8 +8,8 @@ import lightning as L
 from torch.optim.lr_scheduler import LambdaLR
 from pytorch_lightning.utilities import rank_zero_info
 from transformers import VideoMAEModel, VideoMAEImageProcessor, VideoMAEConfig
-from transformers import BertConfig, BertModel
-from joint_pruning import JointPruningModule, l0_penalty
+from models.joint_pruning import JointPruningModule, l0_penalty
+from models.skeleton_encoders import build_skeleton_encoder
 
 def sort_modalities(x):
     assert x in ["rgb", "depth", "skeleton"]
@@ -63,34 +63,19 @@ class SignClassificationLightning(L.LightningModule):
             print("Depth (VideoMAE) config:\n________________________________________")
             self.print_config(depth_config)
 
-        # Skeleton config
-        bert_num_frames = self.config["num_frames"]
-        if bert_num_frames == "video_mae":
-            bert_num_frames = video_mae_config.num_frames
-        assert isinstance(bert_num_frames, int)
-        if "skeleton" in self.config["modalities"]:
-            bert_config = BertConfig(
-                hidden_size=self.config["bert_hidden_dim"],
-                num_hidden_layers=self.config["bert_hidden_layers"],
-                num_attention_heads=self.config["bert_att_heads"],
-                intermediate_size=self.config["bert_intermediate_size"],
-                # max_position_embeddings=video_mae_config.num_frames,
-                max_position_embeddings=bert_num_frames,
-                vocab_size=1,
-                type_vocab_size=1,
-                attention_dropout=0.2,
-                hidden_dropout_prob=self.config["bert_dropout"]
-            )
-            print("Skeleton (BERT) config:\n________________________________________")
-            self.print_config(bert_config)
+        # Skeleton config — handled by skeleton encoder factory
 
         #----------------------------- LOSS -----------------------------#
         # Loss function
+        label_smoothing = self.config.get("label_smoothing", 0.0)
         class_weights_tensor, num_classes_in_training = self._compute_class_weights(self.config["train_csv"])
         if self.config.get("use_class_weights", True):
-            self.loss_fn = CrossEntropyLoss(weight=class_weights_tensor)
+            self.loss_fn = CrossEntropyLoss(weight=class_weights_tensor,
+                                            label_smoothing=label_smoothing)
         else:
-            self.loss_fn = CrossEntropyLoss()
+            self.loss_fn = CrossEntropyLoss(label_smoothing=label_smoothing)
+        if label_smoothing > 0:
+            print(f"Label smoothing: {label_smoothing}")
 
         #----------------------------- TRAINABLE PARAMETERS -----------------------------#
         next_idx = 0
@@ -117,17 +102,11 @@ class SignClassificationLightning(L.LightningModule):
         if "skeleton" in self.config["modalities"]:
             self.skel_mod_idx = next_idx
             next_idx += 1
-            self.skel_encoder = BertModel(bert_config)
-            self.skel_encoder.train()
-            num_coords = config.get("num_coords", 2)  # 2 for X,Y; 3 for X,Y,Z
-            self.skel_proj = torch.nn.Linear(config["num_pose_points"] * num_coords,
-                                             self.skel_encoder.config.hidden_size)
-            #add layer norm
-            self.skel_norm = torch.nn.LayerNorm(self.skel_encoder.config.hidden_size)
-            self.skel_head = torch.nn.Linear(self.skel_encoder.config.hidden_size, self.config["fusion_dim"])
-            # Skeleton pruning layer
+            self.skel_encoder_module = build_skeleton_encoder(config)
+            self.skel_encoder_module.train()
+
+            # Skeleton pruning layer (experiment-level, outside encoder)
             if self.config["joint_pruning"] == True:
-                # Option to use random initialization to break symmetry
                 use_random_init = self.config.get("use_random_init", False)
                 self.joint_pruning = JointPruningModule(
                     num_joints=self.config["num_pose_points"],
@@ -136,8 +115,9 @@ class SignClassificationLightning(L.LightningModule):
                     random_init_std=self.config.get("random_init_std", 0.1)
                 )
 
-            # Gating mechanism for sample-specific importance weighting
+            # Gating mechanism (experiment-level, outside encoder)
             if self.config.get("use_gating", False):
+                num_coords = config.get("num_coords", 2)
                 gate_hidden = self.config.get("gate_hidden_dim", 64)
                 self.joint_gate = torch.nn.Sequential(
                     torch.nn.Linear(num_coords, gate_hidden),
@@ -151,11 +131,6 @@ class SignClassificationLightning(L.LightningModule):
                 print(f"Output: 1 gate value per joint")
                 print(f"Parameters: ~{num_coords * gate_hidden + gate_hidden + gate_hidden + 1}")
                 print("\n\n")
-
-        # # New Skeleton encoder [Batch, Frame, Joints, Points]
-        # if "skeleton" in self.config["modalities"]:
-            
-        # modality weights [rgb, depth, skeleton]
             
         assert next_idx == len(self.config["modalities"])
         self.modality_weights = torch.nn.Parameter(torch.ones(len(self.config["modalities"])))
@@ -222,20 +197,8 @@ class SignClassificationLightning(L.LightningModule):
                 # Store gates for logging (detach to avoid affecting gradients)
                 self._last_gates = gates.detach()
 
-            # old skeleton processing
-            # skeleton_keypoints = skeleton_keypoints.view(B, T, J * P)
-            # skeleton_keypoints = self.skel_proj(skeleton_keypoints)
-            # skel_output = self.skel_encoder(inputs_embeds=skeleton_keypoints).last_hidden_state
-            # skel_feat = self.skel_head(skel_output)
-
-            # new skeleton processing
-            skel_flat = skeleton_keypoints.view(B, T, J * P)
-            skel_embeds = self.skel_proj(skel_flat)
-            skel_embeds = self.skel_norm(skel_embeds)
-            skel_output = self.skel_encoder(inputs_embeds=skel_embeds).last_hidden_state
-            skel_pooled = skel_output.mean(dim=1)
-
-            skel_feat = self.skel_head(skel_pooled)
+            # Skeleton encoder (handles projection, encoding, pooling, and head)
+            skel_feat = self.skel_encoder_module(skeleton_keypoints)
             features.append(skel_feat)
             weights.append(self.modality_weights[self.skel_mod_idx])
 
@@ -527,7 +490,7 @@ class SignClassificationLightning(L.LightningModule):
         pixel_values = batch.get("pixel_values")
         depth_values = batch.get("depth_values")
         skel_keypoints = batch.get("skeleton_keypoints")
-        
+
         labels = batch["labels"]
 
         assert any([pixel_values is not None, depth_values is not None, skel_keypoints is not None])
@@ -537,9 +500,8 @@ class SignClassificationLightning(L.LightningModule):
             skeleton_keypoints=skel_keypoints
         )
 
-        preds = torch.argmax(logits, dim=1)
-
-        return preds, labels
+        # Return raw logits so TTA can average them; caller does argmax
+        return logits, labels
     
     def configure_optimizers(self):
         optimizer_configs = []
@@ -566,26 +528,10 @@ class SignClassificationLightning(L.LightningModule):
                 "weight_decay": self.config["weight_decay"]
             }]
         if "skeleton" in self.config["modalities"]:
-            optimizer_configs += [{
-                "params": self.skel_proj.parameters(),
-                "lr": self.config["skel_learning_rate"],
-                "weight_decay": self.config["weight_decay"]
-            },
-            {
-                "params": self.skel_norm.parameters(),
-                "lr": self.config["skel_learning_rate"],
-                "weight_decay": self.config["weight_decay"]
-            },
-            {
-                "params": self.skel_encoder.parameters(),
-                "lr": self.config["skel_learning_rate"],
-                "weight_decay": self.config["weight_decay"]
-            },
-            {
-                "params": self.skel_head.parameters(),
-                "lr": self.config["skel_learning_rate"],
-                "weight_decay": self.config["weight_decay"]
-            }]
+            optimizer_configs += self.skel_encoder_module.get_optimizer_param_groups(
+                lr=self.config["skel_learning_rate"],
+                weight_decay=self.config["weight_decay"],
+            )
             if self.config["joint_pruning"] == True:
                 optimizer_configs.append({
                     "params": [self.joint_pruning.joint_logits],
@@ -616,7 +562,7 @@ class SignClassificationLightning(L.LightningModule):
 
         if self.config.get("use_reduce_lr_on_plateau", False):
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode="max", factor=0.5, patience=5, verbose=True
+                optimizer, mode="max", factor=0.5, patience=5
             )
             return {
                 "optimizer": optimizer,
@@ -641,6 +587,27 @@ class SignClassificationLightning(L.LightningModule):
                     "frequency": 1
                 }
             }
+
+    def on_load_checkpoint(self, checkpoint):
+        """Remap old state dict key names to new modular skeleton encoder names."""
+        sd = checkpoint["state_dict"]
+        # Only remap if checkpoint uses old key format (pre-refactor)
+        if not any(k.startswith("skel_encoder_module.") for k in sd):
+            remaps = [
+                ("skel_encoder.", "skel_encoder_module.encoder."),
+                ("skel_proj.",    "skel_encoder_module.proj."),
+                ("skel_norm.",    "skel_encoder_module.norm."),
+                ("skel_head.",    "skel_encoder_module.head."),
+            ]
+            new_sd = {}
+            for k, v in sd.items():
+                new_k = k
+                for old, new in remaps:
+                    if k.startswith(old):
+                        new_k = new + k[len(old):]
+                        break
+                new_sd[new_k] = v
+            checkpoint["state_dict"] = new_sd
 
     def _compute_class_weights(self, csv_file):
         annotations = self._read_label_annotations(csv_file)

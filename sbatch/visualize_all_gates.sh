@@ -89,7 +89,7 @@ for entry in "${MODELS[@]}"; do
     echo "Best checkpoint: $BEST_CHECKPOINT"
 
     # Run visualization
-    python src/visualize_joint_pruning.py \
+    python src/analysis/visualize_joint_pruning.py \
         --checkpoint "$BEST_CHECKPOINT" \
         --config "$CONFIG_PATH" \
         --output "$OUTPUT_DIR"

@@ -1,0 +1,58 @@
+#!/bin/bash
+
+#SBATCH --time=72:00:00
+#SBATCH --ntasks-per-node=8
+#SBATCH --nodes=1
+#SBATCH --mem=1024000M
+#SBATCH --gpus=8
+#SBATCH --mail-type=BEGIN
+#SBATCH --mail-type=END
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user %u@byu.edu
+#SBATCH --output /home/%u/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_%x.out
+#SBATCH --qos=matrix
+
+# Usage: sbatch --job-name=<name> sbatch/train_generalization.sh <config_path>
+# Example: sbatch --job-name=asl_gen_aug sbatch/train_generalization.sh configs/asl_citizen/generalization/augmentation.yaml
+
+CONFIG_PATH=${1:?"Error: config path required"}
+MODE=${2:-TRAIN}
+
+if [ ! -f "$CONFIG_PATH" ]; then
+    echo "Error: Config not found: $CONFIG_PATH"
+    exit 1
+fi
+
+echo "=========================================="
+echo "Generalization Experiment - Mode: $MODE"
+echo "Config: $CONFIG_PATH"
+echo "Job ID: $SLURM_JOB_ID"
+echo "Job Name: $SLURM_JOB_NAME"
+echo "Node: $SLURMD_NODENAME"
+echo "Start time: $(date)"
+echo "=========================================="
+
+export TRANSFORMERS_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+export HF_HUB_OFFLINE=1
+
+source ~/.bashrc
+
+conda init
+conda activate asl
+
+nvidia-smi
+
+if [ "$MODE" = "TEST" ]; then
+    python src/train.py \
+        -c "$CONFIG_PATH" \
+        -m "$MODE"
+else
+    srun python src/train.py \
+        -c "$CONFIG_PATH" \
+        -m "$MODE"
+fi
+
+echo "=========================================="
+echo "End time: $(date)"
+echo "=========================================="

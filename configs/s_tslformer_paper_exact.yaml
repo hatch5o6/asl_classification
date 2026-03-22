@@ -39,18 +39,18 @@ class_id_csv: data/SignList_ClassId_TR_EN.csv
 seed: 4000
 num_frames: video_mae  # 16 frames (TSLFormer uses 15 fps; close enough for replication)
 
-n_gpus: 4
+n_gpus: 8
 device: cuda
 
 # Learning rates — paper specifies 1e-4 with Adam
-pretrained_learning_rate: 5e-05  # Unused for skeleton-only
-new_learning_rate: 1e-04
-skel_learning_rate: 1e-04
-class_learning_rate: 1e-04
+pretrained_learning_rate: 1e-04  # Unused for skeleton-only
+new_learning_rate: 2e-04
+skel_learning_rate: 2e-04
+class_learning_rate: 2e-04
 weight_decay: 0.0  # Paper does not mention weight decay; Adam default
 
 # Training schedule
-effective_batch_size: 32
+effective_batch_size: 64
 early_stop: 10
 save_top_k: 10
 val_interval: 0.25  # Fraction of epoch

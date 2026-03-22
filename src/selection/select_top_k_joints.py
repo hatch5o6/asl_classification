@@ -10,13 +10,13 @@ Supports two modes:
 
 Usage:
     # Generate top-K indices from the best 543-joint model
-    python src/select_top_k_joints.py \
+    python src/selection/select_top_k_joints.py \
         --probabilities models/pruning_sweep_gating_l0/figures/joint_probabilities.csv \
         --k 270 100 48 24 10 \
         --output-dir data/informed_selection/topk/
 
     # Sub-select from a reduced model (iterative approach)
-    python src/select_top_k_joints.py \
+    python src/selection/select_top_k_joints.py \
         --probabilities models/iterative_270/figures/joint_probabilities.csv \
         --k 100 \
         --output-dir data/informed_selection/iterative/ \

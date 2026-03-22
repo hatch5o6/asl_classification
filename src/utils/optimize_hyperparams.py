@@ -1,6 +1,10 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # adds src/ to path
+
 import argparse
 import optuna
-from train import train   # assuming train() returns best val_acc
+from train import train
 from train import read_config
 import copy
 import os
@@ -51,58 +55,53 @@ def main(config, n_trials, RESUME):
             for k in ["fusion_dim", "class_learning_rate", "pretrained_learning_rate", "new_learning_rate", "depth_hidden_dim", "depth_hidden_layers", "depth_att_heads", "depth_intermediate_size"]:
                 print(f"{k}={cfg[k]}")
             print("\n")
-        elif cfg["modalities"] == ["skeleton"] and cfg.get("joint_indices_file") is not None:
-            # Informed selection models (topk or iterative) with L0 pruning (no gating)
-            # Search over skeleton encoder, L0, and training hyperparameters
-            cfg["skel_learning_rate"] = trial.suggest_float("skel_learning_rate", 5e-5, 5e-4, log=True)
-
-            cfg["bert_hidden_layers"] = trial.suggest_categorical("bert_hidden_layers", [2, 4, 6])
-            cfg["bert_hidden_dim"] = trial.suggest_categorical("bert_hidden_dim", [256, 384, 512])
-            cfg["bert_att_heads"] = trial.suggest_categorical("bert_att_heads", [4, 8])
-            cfg["bert_intermediate_size"] = trial.suggest_categorical("bert_intermediate_size", [512, 768, 1024, 1536, 2048])
-
-            # L0 pruning hyperparameters
-            cfg["l0_end_weight"] = trial.suggest_categorical("l0_end_weight", [10.0, 20.0, 50.0])
-
-            cfg["classifier_dropout"] = trial.suggest_categorical("classifier_dropout", [0.1, 0.2, 0.3])
-
-            sampled_keys = [
-                "skel_learning_rate", "bert_hidden_layers", "bert_hidden_dim",
-                "bert_att_heads", "bert_intermediate_size", "l0_end_weight",
-                "classifier_dropout"
-            ]
-            print("SAMPLED THE FOLLOWING VALUES (informed selection)")
-            for k in sampled_keys:
-                print(f"{k}={cfg[k]}")
-            print("\n")
         elif cfg["modalities"] == ["skeleton"]:
-            # we will optimize [rgb + depth] first and use batch_size, fusion_dim, and class_learning rate from that study's results
-            # cfg["batch_size"] = trial.suggest_categorical("batch_size", [])
-            # cfg["fusion_dim"] = trial.suggest_categorical("fusion_dim", [])
+            encoder_type = cfg.get("skeleton_encoder", "bert")
+            cfg["skel_learning_rate"] = trial.suggest_float("skel_learning_rate", 5e-5, 5e-4, log=True)
+            cfg["classifier_dropout"] = trial.suggest_categorical("classifier_dropout", [0.1, 0.2, 0.3])
+            sampled_keys = ["skel_learning_rate", "classifier_dropout"]
 
-            # cfg["class_learning_rate"] = trial.suggest_float("class_learning_rate", ,log=True)
-            cfg["skel_learning_rate"] = trial.suggest_float("skel_learning_rate", 5e-5, 5e-4,log=True)
+            if encoder_type == "bert":
+                cfg["bert_hidden_layers"] = trial.suggest_categorical("bert_hidden_layers", [2, 4, 6])
+                cfg["bert_hidden_dim"] = trial.suggest_categorical("bert_hidden_dim", [256, 384, 512])
+                cfg["bert_att_heads"] = trial.suggest_categorical("bert_att_heads", [4, 8])
+                cfg["bert_intermediate_size"] = trial.suggest_categorical("bert_intermediate_size", [512, 768, 1024, 1536, 2048])
+                sampled_keys += ["bert_hidden_layers", "bert_hidden_dim", "bert_att_heads", "bert_intermediate_size"]
 
-            cfg["bert_hidden_layers"] = trial.suggest_categorical("bert_hidden_layers", [4, 6, 8])
-            cfg["bert_hidden_dim"] = trial.suggest_categorical("bert_hidden_dim", [256, 384, 512])
-            cfg["bert_att_heads"] = trial.suggest_categorical("bert_att_heads", [4, 8])
-            cfg["bert_intermediate_size"] = trial.suggest_categorical("bert_intermediate_size", [512, 768, 1024, 1536, 2048])
+            elif encoder_type == "gru":
+                cfg["gru_hidden_dim"] = trial.suggest_categorical("gru_hidden_dim", [256, 384, 512])
+                cfg["gru_num_layers"] = trial.suggest_categorical("gru_num_layers", [1, 2, 3])
+                cfg["gru_dropout"] = trial.suggest_categorical("gru_dropout", [0.0, 0.1, 0.2])
+                sampled_keys += ["gru_hidden_dim", "gru_num_layers", "gru_dropout"]
 
-            sampled_keys = ["skel_learning_rate", "bert_hidden_layers", "bert_hidden_dim", "bert_att_heads", "bert_intermediate_size"]
+            elif encoder_type == "stgcn":
+                cfg["stgcn_channels"] = trial.suggest_categorical(
+                    "stgcn_channels",
+                    [[32, 64, 128], [64, 128, 256], [64, 128, 256, 512]]
+                )
+                cfg["stgcn_kernel_size"] = trial.suggest_categorical("stgcn_kernel_size", [5, 9, 13])
+                sampled_keys += ["stgcn_channels", "stgcn_kernel_size"]
 
-            # If L0 pruning is enabled, also search over L0 and classifier hyperparameters
-            if cfg.get("joint_pruning", False):
+            elif encoder_type == "spoter":
+                cfg["spoter_hidden_dim"] = trial.suggest_categorical("spoter_hidden_dim", [256, 384, 512])
+                cfg["spoter_spatial_layers"] = trial.suggest_categorical("spoter_spatial_layers", [1, 2, 4])
+                cfg["spoter_temporal_layers"] = trial.suggest_categorical("spoter_temporal_layers", [1, 2, 4])
+                cfg["spoter_att_heads"] = trial.suggest_categorical("spoter_att_heads", [4, 8])
+                cfg["spoter_dropout"] = trial.suggest_categorical("spoter_dropout", [0.0, 0.1, 0.2])
+                sampled_keys += ["spoter_hidden_dim", "spoter_spatial_layers", "spoter_temporal_layers", "spoter_att_heads", "spoter_dropout"]
+
+            # L0 pruning hyperparameters (when joint selection is active)
+            if cfg.get("joint_indices_file") is not None:
                 cfg["l0_end_weight"] = trial.suggest_categorical("l0_end_weight", [10.0, 20.0, 50.0])
-                cfg["classifier_dropout"] = trial.suggest_categorical("classifier_dropout", [0.1, 0.2, 0.3])
-                sampled_keys += ["l0_end_weight", "classifier_dropout"]
+                sampled_keys += ["l0_end_weight"]
 
-            print("SAMPLED THE FOLLOWING VALUES")
+            print(f"SAMPLED THE FOLLOWING VALUES (encoder={encoder_type})")
             for k in sampled_keys:
                 print(f"{k}={cfg[k]}")
             print("\n")
 
         pruning_callback = PyTorchLightningPruningCallback(trial, monitor="val_acc")
-        val_acc = train(cfg, trial, limit_train_batches=0.25, additional_callbacks=[pruning_callback])
+        val_acc = train(cfg, trial, limit_train_batches=0.15, additional_callbacks=[pruning_callback])
         return val_acc
 
     assert config.endswith(".yaml")

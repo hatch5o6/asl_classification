@@ -8,7 +8,88 @@ import torch
 import numpy as np
 from transformers import VideoMAEImageProcessor
 import os
+import math
 import pandas as pd
+
+
+# ── Skeleton augmentation transforms ──────────────────────────────────────────
+
+def augment_skeleton_spatial(keypoints, scale_range=(0.9, 1.1), rotation_deg=15.0,
+                             translate_range=0.1):
+    """Apply random scale, rotation, and translation to 2D skeleton coordinates.
+
+    Args:
+        keypoints: (T, J, C) numpy array, C >= 2 (x, y, ...)
+        scale_range: (min, max) uniform scale factor
+        rotation_deg: max absolute rotation in degrees
+        translate_range: max absolute translation (coords are ~0-centered after norm)
+    Returns:
+        augmented keypoints, same shape
+    """
+    kp = keypoints.copy()
+    valid_mask = (kp != 0.0)
+
+    # Random uniform scale
+    scale = np.random.uniform(*scale_range)
+    kp[..., :2] *= scale
+
+    # Random rotation (applied to x, y only)
+    angle = np.random.uniform(-rotation_deg, rotation_deg) * math.pi / 180.0
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
+    x = kp[..., 0].copy()
+    y = kp[..., 1].copy()
+    kp[..., 0] = cos_a * x - sin_a * y
+    kp[..., 1] = sin_a * x + cos_a * y
+
+    # Random translation
+    tx = np.random.uniform(-translate_range, translate_range)
+    ty = np.random.uniform(-translate_range, translate_range)
+    kp[..., 0] += tx
+    kp[..., 1] += ty
+
+    # Restore sentinel zeros
+    kp = np.where(valid_mask, kp, 0.0)
+    return kp
+
+
+def augment_skeleton_temporal(keypoints, speed_range=(0.8, 1.2)):
+    """Temporal speed perturbation via resampling.
+
+    Simulates faster/slower signing by stretching or compressing the time axis
+    then resampling back to the original length.
+
+    Args:
+        keypoints: (T, J, C) numpy array
+        speed_range: (min, max) speed factor (>1 = faster = fewer unique frames)
+    Returns:
+        augmented keypoints, same shape (T, J, C)
+    """
+    T, J, C = keypoints.shape
+    speed = np.random.uniform(*speed_range)
+    new_T = max(2, int(round(T / speed)))
+    # Resample to new_T frames then back to T
+    indices_to_new = np.linspace(0, T - 1, new_T).astype(int)
+    stretched = keypoints[indices_to_new]  # (new_T, J, C)
+    indices_back = np.linspace(0, new_T - 1, T).astype(int)
+    return stretched[indices_back]
+
+
+def augment_skeleton_joint_noise(keypoints, noise_std=0.02):
+    """Add small Gaussian noise to each joint coordinate.
+
+    Args:
+        keypoints: (T, J, C) numpy array
+        noise_std: standard deviation of Gaussian noise
+    Returns:
+        augmented keypoints, same shape
+    """
+    kp = keypoints.copy()
+    valid_mask = (kp != 0.0)
+    noise = np.random.randn(*kp.shape).astype(kp.dtype) * noise_std
+    kp = kp + noise
+    kp = np.where(valid_mask, kp, 0.0)
+    return kp
+
 
 class RGBDSkel_Dataset(Dataset):
     def __init__(
@@ -19,7 +100,8 @@ class RGBDSkel_Dataset(Dataset):
         modalities=("rgb", "depth", "skeleton"),
         use_tslformer_joints=False,  # Enable TSLFormer joint selection (543 → 50)
         use_z_coord=False,  # Include Z coordinate (3D) instead of just X, Y (2D)
-        selected_joint_indices=None  # Custom joint index selection (list of 543-space indices)
+        selected_joint_indices=None,  # Custom joint index selection (list of 543-space indices)
+        augment_config=None,  # Dict of augmentation settings (None = no augmentation)
     ):
         self.annotations = self._read_annotations(annotations)
         self.processor = processor
@@ -29,6 +111,7 @@ class RGBDSkel_Dataset(Dataset):
         self.use_z_coord = use_z_coord
         self.num_coords = 3 if use_z_coord else 2
         self.selected_joint_indices = selected_joint_indices
+        self.augment_config = augment_config or {}
 
         # Mutually exclusive: can't use both TSLFormer and custom selection
         assert not (use_tslformer_joints and selected_joint_indices is not None), \
@@ -36,7 +119,7 @@ class RGBDSkel_Dataset(Dataset):
 
         # Import joint selection utility if needed
         if self.use_tslformer_joints:
-            from tslformer_joint_selection import select_tslformer_joints
+            from data.tslformer_joint_selection import select_tslformer_joints
             self.joint_selector = select_tslformer_joints
         else:
             self.joint_selector = None
@@ -121,6 +204,25 @@ class RGBDSkel_Dataset(Dataset):
 
             # Scale to unit variance (only valid coordinates)
             keypoints = np.where(valid_mask, keypoints / std, 0.0)
+
+        # Apply skeleton augmentation (training only — caller sets augment_config)
+        if self.augment_config.get("spatial", False):
+            keypoints = augment_skeleton_spatial(
+                keypoints,
+                scale_range=self.augment_config.get("scale_range", (0.9, 1.1)),
+                rotation_deg=self.augment_config.get("rotation_deg", 15.0),
+                translate_range=self.augment_config.get("translate_range", 0.1),
+            )
+        if self.augment_config.get("temporal", False):
+            keypoints = augment_skeleton_temporal(
+                keypoints,
+                speed_range=self.augment_config.get("speed_range", (0.8, 1.2)),
+            )
+        if self.augment_config.get("joint_noise", False):
+            keypoints = augment_skeleton_joint_noise(
+                keypoints,
+                noise_std=self.augment_config.get("noise_std", 0.02),
+            )
 
         # Apply TSLFormer joint selection if enabled (543 → 50 joints)
         if self.use_tslformer_joints and self.joint_selector is not None:

@@ -7,7 +7,7 @@ Compares different L0 configurations:
 - Which joints are consistently important across experiments
 
 Usage:
-    python src/analyze_pruning_sweep.py --models_dir /path/to/models
+    python src/analysis/analyze_pruning_sweep.py --models_dir /path/to/models
 """
 
 import argparse

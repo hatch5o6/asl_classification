@@ -1,0 +1,12 @@
+configs/encoder_comparison/autsl/gru/k543.yaml	gru_autsl_k543
+configs/encoder_comparison/asl_citizen/gru/k543.yaml	gru_asl_citizen_k543
+configs/encoder_comparison/gsl/gru/k543.yaml	gru_gsl_k543
+configs/encoder_comparison/multilingual/gru/k543.yaml	gru_multilingual_k543
+configs/encoder_comparison/autsl/stgcn/k543.yaml	stgcn_autsl_k543
+configs/encoder_comparison/asl_citizen/stgcn/k543.yaml	stgcn_asl_citizen_k543
+configs/encoder_comparison/gsl/stgcn/k543.yaml	stgcn_gsl_k543
+configs/encoder_comparison/multilingual/stgcn/k543.yaml	stgcn_multilingual_k543
+configs/encoder_comparison/autsl/spoter/k543.yaml	spoter_autsl_k543
+configs/encoder_comparison/asl_citizen/spoter/k543.yaml	spoter_asl_citizen_k543
+configs/encoder_comparison/gsl/spoter/k543.yaml	spoter_gsl_k543
+configs/encoder_comparison/multilingual/spoter/k543.yaml	spoter_multilingual_k543

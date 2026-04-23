@@ -289,12 +289,62 @@ class STGCNSkeletonEncoder(SkeletonEncoder):
 
     @staticmethod
     def _build_adjacency(num_joints, config):
-        """Build normalized adjacency matrix from edge list or default to self-loops."""
+        """Build normalized adjacency matrix from edge list or default to self-loops.
+
+        When a joint_indices_file is provided (joint subset), uses shortest-path
+        condensation: two selected joints are connected if any path exists between
+        them in the full graph, even through unselected intermediate joints.
+        This preserves skeleton topology regardless of how sparse the selection is.
+        """
         edges_file = config.get("stgcn_edges_file", None)
 
         if edges_file is not None:
             with open(edges_file) as f:
                 edges = json.load(f)
+
+            joint_indices_file = config.get("joint_indices_file", None)
+            if joint_indices_file is not None:
+                with open(joint_indices_file) as f:
+                    selected = json.load(f)
+                selected_set = set(selected)
+                global_to_local = {g: l for l, g in enumerate(sorted(selected))}
+
+                # Build adjacency for the full graph (all 543 joints)
+                from collections import defaultdict, deque
+                full_adj = defaultdict(set)
+                for i, j in edges:
+                    full_adj[i].add(j)
+                    full_adj[j].add(i)
+
+                # For each selected joint, BFS through the full graph to find
+                # all other selected joints reachable without passing through
+                # another selected joint as an intermediate stop.
+                condensed = set()
+                for src in selected_set:
+                    visited = {src}
+                    queue = deque(full_adj[src])
+                    while queue:
+                        node = queue.popleft()
+                        if node in visited:
+                            continue
+                        visited.add(node)
+                        if node in selected_set:
+                            # Found a selected joint — add condensed edge
+                            pair = (min(src, node), max(src, node))
+                            condensed.add(pair)
+                            # Don't traverse through other selected joints
+                        else:
+                            queue.extend(full_adj[node] - visited)
+
+                reindexed = [(global_to_local[i], global_to_local[j])
+                             for i, j in condensed]
+                print(f"  ST-GCN: {len(reindexed)} condensed edges for "
+                      f"{len(selected)} joints (was {sum(1 for i,j in edges if i in selected_set and j in selected_set)} induced edges)")
+                edges = reindexed
+            else:
+                # Full skeleton — no subsetting needed, use edges as-is
+                pass
+
             A = torch.zeros(num_joints, num_joints)
             for i, j in edges:
                 if i < num_joints and j < num_joints:

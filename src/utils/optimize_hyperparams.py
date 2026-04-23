@@ -101,7 +101,7 @@ def main(config, n_trials, RESUME):
             print("\n")
 
         pruning_callback = PyTorchLightningPruningCallback(trial, monitor="val_acc")
-        val_acc = train(cfg, trial, limit_train_batches=0.15, additional_callbacks=[pruning_callback])
+        val_acc = train(cfg, trial, limit_train_batches=0.25, additional_callbacks=[pruning_callback])
         return val_acc
 
     assert config.endswith(".yaml")

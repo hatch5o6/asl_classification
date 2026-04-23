@@ -25,7 +25,7 @@ from models.lightning_asl import SignClassificationLightning
 
 video_mae_config = VideoMAEConfig()
 
-def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
+def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[], resume=False):
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     print("WORLD_SIZE:", world_size, "RANK:", os.environ.get("RANK"))
     print("RANK (rank_zero_only.rank): ", rank_zero_only.rank)
@@ -36,6 +36,7 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     rank_zero_info("\n\n")
     rank_zero_info(f"limit_train_batches={limit_train_batches}")
     rank_zero_info(f"additional_callbacks={additional_callbacks}")
+    rank_zero_info(f"resume={resume}")
 
     L.seed_everything(config["seed"], workers=True)
 
@@ -50,16 +51,19 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     if rank_zero_only.rank == 0:
         parent_dir = "/".join(save_dir.split("/")[:-1])
         os.makedirs(parent_dir, exist_ok=True)
-        if os.path.exists(save_dir):
-            # rank_zero_info(f"deleting {save_dir}")
-            print(f"deleting {save_dir}")
-            shutil.rmtree(save_dir)
-        # rank_zero_info(f"creating {save_dir}")
-        print(f"creating {save_dir}")
-        os.mkdir(save_dir)
-        os.mkdir(checkpoints_dir)
-        os.mkdir(logs_dir)
-        os.mkdir(tb_dir)
+        if resume:
+            assert os.path.exists(checkpoints_dir), \
+                f"Cannot resume: {checkpoints_dir} does not exist"
+            print(f"RESUMING from {checkpoints_dir}")
+        else:
+            if os.path.exists(save_dir):
+                print(f"deleting {save_dir}")
+                shutil.rmtree(save_dir)
+            print(f"creating {save_dir}")
+            os.mkdir(save_dir)
+            os.mkdir(checkpoints_dir)
+            os.mkdir(logs_dir)
+            os.mkdir(tb_dir)
 
     processor = VideoMAEImageProcessor.from_pretrained("MCG-NJU/videomae-base-finetuned-kinetics")
     modalities = tuple(config["modalities"])
@@ -144,17 +148,26 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     early_stopping = EarlyStopping(monitor="val_acc", mode="max", patience=config["early_stop"], verbose=True)
     top_k_model_checkpoint = ModelCheckpoint(
         dirpath=checkpoints_dir,
-        # filename="epoch={epoch}-step={step}-val_loss={val_loss:.6f}-val_acc={val_acc:.6f}",
         filename="{epoch}-{step}-{val_loss:.6f}-{val_acc:.6f}",
         save_top_k=config["save_top_k"],
         monitor="val_acc",
         mode="max"
+    )
+    last_checkpoint = ModelCheckpoint(
+        dirpath=checkpoints_dir,
+        filename="last",
+        save_last=False,
+        every_n_train_steps=500,
+        save_top_k=1,
+        monitor="step",
+        mode="max",
     )
     lr_monitor = LearningRateMonitor(logging_interval='step')
     print_callback = PrintCallback()
     train_callbacks = [
         early_stopping,
         top_k_model_checkpoint,
+        last_checkpoint,
         lr_monitor,
         print_callback
     ]
@@ -195,11 +208,19 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[]):
     )
 
     # train :)
+    ckpt_path = None
+    if resume:
+        last_ckpt = os.path.join(checkpoints_dir, "last.ckpt")
+        assert os.path.exists(last_ckpt), f"Cannot resume: {last_ckpt} not found"
+        ckpt_path = last_ckpt
+        rank_zero_info(f"Resuming from checkpoint: {ckpt_path}")
+
     try:
         trainer.fit(
             lightning_model,
             train_dataloader,
-            val_dataloader
+            val_dataloader,
+            ckpt_path=ckpt_path
         )
     except optuna.exceptions.TrialPruned:
         raise
@@ -493,7 +514,7 @@ def read_config(f):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config")
-    parser.add_argument("-m", "--mode", choices = ["TRAIN", "TEST"])
+    parser.add_argument("-m", "--mode", choices = ["TRAIN", "TEST", "RESUME"])
     args = parser.parse_args()
     print("Arguments:-")
     for k, v in vars(args).items():
@@ -510,6 +531,9 @@ if __name__ == "__main__":
     if args.mode == "TRAIN":
         print("- TRAINING -")
         train(config)
+    elif args.mode == "RESUME":
+        print("- RESUMING TRAINING -")
+        train(config, resume=True)
     elif args.mode == "TEST":
         print("- TESTING -")
         test(config)

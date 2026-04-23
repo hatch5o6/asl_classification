@@ -40,6 +40,9 @@ avg_train_lens.metrics.json
 # === Optuna databases ===
 *.db
 
+# === Generated test config lists (timestamped by submit_encoder_tests.sh) ===
+configs/encoder_comparison/batch*_test_configs*.txt
+
 # === Editor / OS ===
 .vscode/
 *.swp

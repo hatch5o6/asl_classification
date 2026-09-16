@@ -1,0 +1,6 @@
+configs/tslformer/autsl_seed4003_2gpu.yaml	tsl5au3
+configs/tslformer/autsl_seed4004_2gpu.yaml	tsl5au4
+configs/tslformer/asl_citizen_seed4003_2gpu.yaml	tsl5as3
+configs/tslformer/asl_citizen_seed4004_2gpu.yaml	tsl5as4
+configs/tslformer/gsl_seed4003_2gpu.yaml	tsl5gs3
+configs/tslformer/gsl_seed4004_2gpu.yaml	tsl5gs4

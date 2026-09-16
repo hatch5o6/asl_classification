@@ -1,0 +1,3 @@
+configs/gate_norm/autsl_pergroup.yaml	ng_au
+configs/gate_norm/asl_citizen_pergroup.yaml	ng_ac
+configs/gate_norm/gsl_pergroup.yaml	ng_gs

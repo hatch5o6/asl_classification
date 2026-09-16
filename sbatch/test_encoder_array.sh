@@ -3,7 +3,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
-#SBATCH --mem=256000M
+#SBATCH --mem=49152M
 #SBATCH --gpus=8
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user %u@byu.edu
@@ -67,6 +67,9 @@ for gpu_id in $(seq 0 $(( GPUS_PER_NODE - 1 ))); do
     # test completes.
     rel=${CONFIG#configs/encoder_comparison/}
     subdir="${rel%.yaml}"
+    # Random configs sit under a /random/ subdir but their model save dir
+    # does NOT have that intermediate path. Strip it so save_dir matches disk.
+    subdir="${subdir/\/random\//\/}"
     save_dir="/home/$USER/groups/grp_asl_classification/nobackup/archive/SLR/models/encoder_comparison/$subdir"
     last_ckpt="$save_dir/checkpoints/last.ckpt"
     last_hidden="$save_dir/last.ckpt.bak"
@@ -100,6 +103,7 @@ for i in "${!PIDS[@]}"; do
     # Restore last.ckpt from its out-of-dir hiding spot
     rel_i=${CONFIG_I#configs/encoder_comparison/}
     subdir_i="${rel_i%.yaml}"
+    subdir_i="${subdir_i/\/random\//\/}"
     save_dir_i="/home/$USER/groups/grp_asl_classification/nobackup/archive/SLR/models/encoder_comparison/$subdir_i"
     bak="${save_dir_i}/last.ckpt.bak"
     [ -f "$bak" ] && mv "$bak" "${save_dir_i}/checkpoints/last.ckpt"

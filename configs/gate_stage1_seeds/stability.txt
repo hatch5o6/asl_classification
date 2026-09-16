@@ -1,0 +1,9 @@
+configs/gate_stage1_seeds/autsl_seed4000_rerun.yaml	stabau0r
+configs/gate_stage1_seeds/autsl_seed4001.yaml	stabau1
+configs/gate_stage1_seeds/autsl_seed4002.yaml	stabau2
+configs/gate_stage1_seeds/asl_citizen_seed4000_rerun.yaml	stabas0r
+configs/gate_stage1_seeds/asl_citizen_seed4001.yaml	stabas1
+configs/gate_stage1_seeds/asl_citizen_seed4002.yaml	stabas2
+configs/gate_stage1_seeds/gsl_seed4000_rerun.yaml	stabgs0r
+configs/gate_stage1_seeds/gsl_seed4001.yaml	stabgs1
+configs/gate_stage1_seeds/gsl_seed4002.yaml	stabgs2

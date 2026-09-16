@@ -1,0 +1,2 @@
+configs/visfilt/gsl/top100_seed4000.yaml	vf_gs100_s4000
+configs/visfilt/gsl/top48_seed4000.yaml	vf_gs48_s4000

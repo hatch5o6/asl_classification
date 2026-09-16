@@ -1,0 +1,4 @@
+configs/gate_sweep/gsl/hc2_init0.5_lam2_2gpu.yaml	g2_init0.5_lam2
+configs/gate_sweep/gsl/hc2_init0.25_lam2_2gpu.yaml	g2_init0.25_lam2
+configs/gate_sweep/gsl/hc2_init0.1_lam2_2gpu.yaml	g2_init0.1_lam2
+configs/gate_sweep/gsl/hc2_init0.5_lam20_2gpu.yaml	g2_init0.5_lam20

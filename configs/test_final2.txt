@@ -1,0 +1,2 @@
+configs/stage2_ext/asl_citizen/casc10_seed4003.yaml	t5acc10
+configs/region_ablation/asl_citizen_lips_only_seed4004.yaml	t5acl4

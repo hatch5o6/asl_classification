@@ -1,0 +1,9 @@
+configs/tslformer/asl_citizen_seed4000_2gpu.yaml	teTSLasl_citize
+configs/tslformer/asl_citizen_seed4001_2gpu.yaml	teTSLasl_citize
+configs/tslformer/asl_citizen_seed4002_2gpu.yaml	teTSLasl_citize
+configs/tslformer/autsl_seed4000_2gpu.yaml	teTSLautsl_seed
+configs/tslformer/autsl_seed4001_2gpu.yaml	teTSLautsl_seed
+configs/tslformer/autsl_seed4002_2gpu.yaml	teTSLautsl_seed
+configs/tslformer/gsl_seed4000_2gpu.yaml	teTSLgsl_seed40
+configs/tslformer/gsl_seed4001_2gpu.yaml	teTSLgsl_seed40
+configs/tslformer/gsl_seed4002_2gpu.yaml	teTSLgsl_seed40

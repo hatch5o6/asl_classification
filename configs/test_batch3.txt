@@ -1,0 +1,9 @@
+configs/stage2_ext/asl_citizen/random24_draw4.yaml	te3random24_dra
+configs/stage2_ext/asl_citizen/topk270_seed4002.yaml	te3topk270_seed
+configs/stage2_ext/asl_citizen/topk48_seed4000.yaml	te3topk48_seed4
+configs/stage2_ext/asl_citizen/topk48_seed4001.yaml	te3topk48_seed4
+configs/stage2_ext/asl_citizen/topk48_seed4002.yaml	te3topk48_seed4
+configs/stage2_ext/asl_citizen/topk543_seed4000.yaml	te3topk543_seed
+configs/stage2_ext/asl_citizen/topk543_seed4001.yaml	te3topk543_seed
+configs/stage2_ext/asl_citizen/topk543_seed4002.yaml	te3topk543_seed
+configs/stage2_ext/asl_citizen/union88_seed4000.yaml	te3union88_seed

@@ -1,0 +1,2 @@
+configs/tslformer/asl_citizen_seed4003_2gpu.yaml	ttslac3
+configs/tslformer/asl_citizen_seed4004_2gpu.yaml	ttslac4

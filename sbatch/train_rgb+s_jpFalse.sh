@@ -3,7 +3,7 @@
 #SBATCH --time=72:00:00   # walltime.  hours:minutes:seconds
 #SBATCH --ntasks-per-node=4
 #SBATCH --nodes=1
-#SBATCH --mem=1024000M
+#SBATCH --mem=131072M
 #SBATCH --gpus=4
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END

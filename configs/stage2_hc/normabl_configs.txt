@@ -1,0 +1,9 @@
+configs/stage2_hc/autsl/normsub48_seed4000.yaml	s2_aun48
+configs/stage2_hc/autsl/normsub24_seed4000.yaml	s2_aun24
+configs/stage2_hc/autsl/normsub10_seed4000.yaml	s2_aun10
+configs/stage2_hc/asl_citizen/normsub48_seed4000.yaml	s2_acn48
+configs/stage2_hc/asl_citizen/normsub24_seed4000.yaml	s2_acn24
+configs/stage2_hc/asl_citizen/normsub10_seed4000.yaml	s2_acn10
+configs/stage2_hc/gsl/normsub48_seed4000.yaml	s2_gsn48
+configs/stage2_hc/gsl/normsub24_seed4000.yaml	s2_gsn24
+configs/stage2_hc/gsl/normsub10_seed4000.yaml	s2_gsn10

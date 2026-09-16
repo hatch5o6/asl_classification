@@ -3,7 +3,7 @@
 #SBATCH --time=72:00:00
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
-#SBATCH --mem=256000M
+#SBATCH --mem=32000M
 #SBATCH --gpus=8
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END

@@ -91,10 +91,14 @@ submit_batch() {
     local last=$(( n_nodes - 1 ))
     echo "  Trained and ready to test: $count jobs → $n_nodes nodes (${GPUS_PER_NODE} tests/node)"
 
+    # Optional qos override: TEST_QOS=cs bash scripts/submit_encoder_tests.sh ...
+    local qos_arg=""
+    [ -n "$TEST_QOS" ] && qos_arg="--qos=$TEST_QOS"
+
     if [ "$MODE" = "SUBMIT" ]; then
-        sbatch --array="0-${last}%${THROTTLE}" "$SBATCH_SCRIPT" "$test_list"
+        sbatch --array="0-${last}%${THROTTLE}" $qos_arg "$SBATCH_SCRIPT" "$test_list"
     else
-        echo "  sbatch --array=0-${last}%${THROTTLE} $SBATCH_SCRIPT $test_list"
+        echo "  sbatch --array=0-${last}%${THROTTLE} $qos_arg $SBATCH_SCRIPT $test_list"
         echo "  (first few entries in test list:)"
         head -3 "$test_list" | awk '{print "    " $2}'
         rm -f "$test_list"   # don't leave dry-run files on disk

@@ -1,0 +1,9 @@
+configs/tslformer/autsl_seed4000.yaml	tsl_au_s4000
+configs/tslformer/autsl_seed4001.yaml	tsl_au_s4001
+configs/tslformer/autsl_seed4002.yaml	tsl_au_s4002
+configs/tslformer/gsl_seed4000.yaml	tsl_gs_s4000
+configs/tslformer/gsl_seed4001.yaml	tsl_gs_s4001
+configs/tslformer/gsl_seed4002.yaml	tsl_gs_s4002
+configs/tslformer/asl_citizen_seed4000.yaml	tsl_ac_s4000
+configs/tslformer/asl_citizen_seed4001.yaml	tsl_ac_s4001
+configs/tslformer/asl_citizen_seed4002.yaml	tsl_ac_s4002

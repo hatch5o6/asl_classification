@@ -58,6 +58,13 @@ fi
 # Get all currently running/pending job names
 RUNNING_JOBS=$(squeue -u "$USER" -o "%j" --noheader 2>/dev/null)
 
+# Cache job names that have ever completed cleanly. sacct records the per-task
+# job name set via `scontrol update jobname` inside the array sbatch script,
+# which is more reliable than the SLURM output filename (those use the static
+# `enc_array` job name from submission time).
+COMPLETED_JOBS=$(sacct -u "$USER" -X -n -S 2026-04-01 --format=JobName%40,State 2>/dev/null \
+    | awk '$2=="COMPLETED" {print $1}' | sort -u)
+
 resume_indices=()
 train_indices=()
 
@@ -97,12 +104,9 @@ while IFS=$'\t' read -r config jobname; do
         continue
     fi
 
-    # Skip jobs whose SLURM log shows clean completion ("TRAINING ENDED")
-    # Search most recent log for this jobname (array jobs use jobname via scontrol)
-    SLURM_OUT_DIR="/home/$USER/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs"
-    recent_log=$(ls -t "$SLURM_OUT_DIR"/*_${jobname}.out 2>/dev/null | head -1)
-    if [ -n "$recent_log" ] && grep -q "TRAINING ENDED\|TRAINING COMPLETED" "$recent_log" 2>/dev/null; then
-        # Training completed cleanly — just not tested yet, no resubmission needed
+    # Skip jobs that completed cleanly per sacct — just not tested yet,
+    # no resubmission needed.
+    if echo "$COMPLETED_JOBS" | grep -qx "$jobname"; then
         idx=$((idx+1))
         continue
     fi

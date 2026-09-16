@@ -1,0 +1,1 @@
+configs/probe/gsl_1gpu_16cpu.yaml	probe1g

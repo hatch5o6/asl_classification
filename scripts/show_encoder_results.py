@@ -28,6 +28,11 @@ def resolve_save_dir(lang: str, enc: str, sel_type: str, subdir: str, k: int) ->
     original default and sits at the root of models/ rather than under
     models/autsl/ for iterative and topk runs."""
     if enc != "bert":
+        # At K=270 (half of 543), topk and iterative selection converge to the
+        # same joint set, so we don't train a separate topk_270 model — reuse
+        # the iter_270 result.
+        if sel_type == "topk" and k == 270:
+            return MODEL_ROOT / lang / enc / "iter_270"
         return MODEL_ROOT / lang / enc / subdir
 
     if sel_type == "full":   # K=543 full skeleton
@@ -36,7 +41,9 @@ def resolve_save_dir(lang: str, enc: str, sel_type: str, subdir: str, k: int) ->
         return BERT_ROOT / lang / "s"
 
     if sel_type == "iterative":
-        name = f"iterative_{k}"
+        # At K=270, BERT only has the topk_270 model (iterative and topk
+        # converge to the same joint set at K=270), so reuse it.
+        name = "topk_270" if k == 270 else f"iterative_{k}"
         if lang == "autsl":
             return BERT_ROOT / "informed_selection" / name
         return BERT_ROOT / lang / "informed_selection" / name
@@ -47,7 +54,11 @@ def resolve_save_dir(lang: str, enc: str, sel_type: str, subdir: str, k: int) ->
             return BERT_ROOT / "informed_selection" / name
         return BERT_ROOT / lang / "informed_selection" / name
 
-    # No BERT results for the random baselines
+    # BERT random baseline lives at models/{lang}/random_selection/ (autsl at root)
+    if sel_type == "random":
+        if lang == "autsl":
+            return BERT_ROOT / "random_selection" / subdir
+        return BERT_ROOT / lang / "random_selection" / subdir
     return BERT_ROOT / "__bert_unavailable__"
 
 # All selection types in display order

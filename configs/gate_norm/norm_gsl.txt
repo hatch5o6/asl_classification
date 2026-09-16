@@ -1,0 +1,1 @@
+configs/gate_norm/gsl_pergroup.yaml	ng_gs

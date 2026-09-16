@@ -1,0 +1,2 @@
+configs/encoder_comparison/multilingual/stgcn/random/random_270_draw0.yaml	stgcn_multilingual_rand270_d0
+configs/encoder_comparison/multilingual/spoter/random/random_270_draw0.yaml	spoter_multilingual_rand270_d0

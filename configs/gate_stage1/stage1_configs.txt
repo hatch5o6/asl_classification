@@ -1,0 +1,2 @@
+configs/gate_stage1/autsl.yaml	s1_au
+configs/gate_stage1/asl_citizen.yaml	s1_ac

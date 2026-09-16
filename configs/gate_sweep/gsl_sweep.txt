@@ -1,0 +1,4 @@
+configs/gate_sweep/gsl/hc_lam0.5_init0.9.yaml	gate_hc_lam0.5_init0.9
+configs/gate_sweep/gsl/hc_lam2_init0.9.yaml	gate_hc_lam2_init0.9
+configs/gate_sweep/gsl/hc_lam8_init0.9.yaml	gate_hc_lam8_init0.9
+configs/gate_sweep/gsl/hc_lam2_init0.5.yaml	gate_hc_lam2_init0.5

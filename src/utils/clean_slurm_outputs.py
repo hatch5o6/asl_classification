@@ -21,6 +21,9 @@ for dir in dirs:
         if f.startswith("SAVE_"): continue
         if f.startswith("OG_"): continue
         number = f.split("_")[0]
+        if not number.isdigit():
+            # Not a SLURM output file (e.g. "smoke_test_node.out"); leave it alone.
+            continue
         number = int(number)
         name = "_".join(f.split("_")[1:])
         if name not in files:

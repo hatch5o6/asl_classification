@@ -1,0 +1,9 @@
+configs/tslformer/asl_citizen_seed4000_2gpu.yaml	t2_ac_s4000
+configs/tslformer/asl_citizen_seed4001_2gpu.yaml	t2_ac_s4001
+configs/tslformer/asl_citizen_seed4002_2gpu.yaml	t2_ac_s4002
+configs/tslformer/autsl_seed4000_2gpu.yaml	t2_au_s4000
+configs/tslformer/autsl_seed4001_2gpu.yaml	t2_au_s4001
+configs/tslformer/autsl_seed4002_2gpu.yaml	t2_au_s4002
+configs/tslformer/gsl_seed4000_2gpu.yaml	t2_gs_s4000
+configs/tslformer/gsl_seed4001_2gpu.yaml	t2_gs_s4001
+configs/tslformer/gsl_seed4002_2gpu.yaml	t2_gs_s4002

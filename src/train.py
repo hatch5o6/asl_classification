@@ -25,6 +25,39 @@ from models.lightning_asl import SignClassificationLightning
 
 video_mae_config = VideoMAEConfig()
 
+def _default_num_workers():
+    """Workers to use when the config does not pin `num_workers`.
+
+    Throughput here is set by worker count, not GPU count: on one A100 with an otherwise
+    identical GSL config, 6 workers gave 5.29 optimizer steps/s, 14 gave 12.02 and 30 gave
+    22.40, while GPU memory use stayed at ~2 GB of 183 GB. `--cpus-per-task` is *per task*,
+    so a 2-rank job silently gets twice the workers of a 1-rank job at the same setting --
+    which once made a 1-GPU run look 2.2x slower than its 2-GPU counterpart and led us to
+    blame the GPU count. Deriving from the allocation removes that trap in both directions
+    (undersubscribing a 16-core task, oversubscribing an 8-core one).
+
+    Two cores are reserved for the main process and the CUDA/pinning threads.
+    """
+    cpus = os.environ.get("SLURM_CPUS_PER_TASK")
+    if not cpus or not cpus.isdigit():
+        return 6  # not under SLURM (login-node smoke test, local debugging)
+    return max(0, int(cpus) - 2)
+
+
+def _loader_kwargs(config, training: bool):
+    """DataLoader worker settings. See docs: preprocessing is CPU-bound, not GPU-bound."""
+    num_workers = config.get("num_workers", _default_num_workers())
+    # pin_memory allocates through CUDA; guard it so CPU-only contexts (login-node
+    # smoke tests, CPU debugging) do not hit cudaErrorDevicesUnavailable.
+    kwargs = {"num_workers": num_workers, "pin_memory": torch.cuda.is_available()}
+    if num_workers > 0:
+        kwargs["prefetch_factor"] = config.get("prefetch_factor", 4)
+        # Respawning workers each epoch would repay the startup cost every validation
+        # pass; only worth holding them open for loaders we iterate repeatedly.
+        kwargs["persistent_workers"] = training
+    return kwargs
+
+
 def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[], resume=False):
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     print("WORLD_SIZE:", world_size, "RANK:", os.environ.get("RANK"))
@@ -97,6 +130,7 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[], 
         use_z_coord=config.get("use_z_coord", False),
         selected_joint_indices=config.get("selected_joint_indices", None),
         augment_config=augment_config,
+        normalization_scope=config.get("normalization_scope", "global"),
     )
 
     # Signer-balanced sampling: weight each sample inversely by its signer's count
@@ -127,7 +161,8 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[], 
                        f"min={min(signer_counts.values())} max={max(signer_counts.values())}")
 
     train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"],
-                                  shuffle=train_shuffle, sampler=train_sampler)
+                                  shuffle=train_shuffle, sampler=train_sampler,
+                                  **_loader_kwargs(config, training=True))
 
     # load val dataloader
     val_dataset = RGBDSkel_Dataset(
@@ -137,9 +172,12 @@ def train(config, trial=None, limit_train_batches=1.0, additional_callbacks=[], 
         modalities=modalities,
         use_tslformer_joints=config.get("use_tslformer_joints", False),
         use_z_coord=config.get("use_z_coord", False),
-        selected_joint_indices=config.get("selected_joint_indices", None)
+        selected_joint_indices=config.get("selected_joint_indices", None),
+        cache_skeletons=config.get("cache_val_skeletons", False),
+        normalization_scope=config.get("normalization_scope", "global"),
     )
-    val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False)
+    val_dataloader = DataLoader(val_dataset, batch_size=config["batch_size"], shuffle=False,
+                                **_loader_kwargs(config, training=True))
 
     # load model
     lightning_model = SignClassificationLightning(config=config)
@@ -295,16 +333,20 @@ def test(config):
         modalities=modalities,
         use_tslformer_joints=config.get("use_tslformer_joints", False),
         use_z_coord=config.get("use_z_coord", False),
-        selected_joint_indices=config.get("selected_joint_indices", None)
+        selected_joint_indices=config.get("selected_joint_indices", None),
+        normalization_scope=config.get("normalization_scope", "global"),
     )
-    test_dataloader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)
+    test_dataloader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False,
+                                 **_loader_kwargs(config, training=False))
 
     if config["test_checkpoint"] in [None, "None", "null"]:
         print("No checkpoint provided for testing. Will select based on val acc.")
         checkpoint_to_test = None
         best_val_acc = None
         for f in os.listdir(checkpoints_dir):
-            # val_acc = float(f.split(".ckpt")[0].split("-val_acc=val_acc=")[1])
+            # Skip files that aren't best-val_acc checkpoints (e.g. last.ckpt, last.ckpt.bak)
+            if not f.endswith(".ckpt") or "-val_acc=" not in f:
+                continue
             val_acc = float(f.split(".ckpt")[0].split("-val_acc=")[1])
             if best_val_acc is None:
                 assert checkpoint_to_test is None
@@ -361,8 +403,10 @@ def test(config):
                 use_z_coord=config.get("use_z_coord", False),
                 selected_joint_indices=config.get("selected_joint_indices", None),
                 augment_config=tta_aug_config,
+                normalization_scope=config.get("normalization_scope", "global"),
             )
-            tta_loader = DataLoader(tta_dataset, batch_size=config["batch_size"], shuffle=False)
+            tta_loader = DataLoader(tta_dataset, batch_size=config["batch_size"], shuffle=False,
+                                    **_loader_kwargs(config, training=False))
             aug_logits = _collect_logits(trainer, lightning_model, tta_loader)
             all_logits = all_logits + aug_logits
 

@@ -1,0 +1,6 @@
+configs/encoder_comparison/asl_citizen/gru/iter_270.yaml	gru_asl_citizen_iter270
+configs/encoder_comparison/asl_citizen/stgcn/iter_270.yaml	stgcn_asl_citizen_iter270
+configs/encoder_comparison/asl_citizen/spoter/iter_270.yaml	spoter_asl_citizen_iter270
+configs/encoder_comparison/multilingual/gru/iter_270.yaml	gru_multilingual_iter270
+configs/encoder_comparison/multilingual/stgcn/iter_270.yaml	stgcn_multilingual_iter270
+configs/encoder_comparison/multilingual/spoter/iter_270.yaml	spoter_multilingual_iter270

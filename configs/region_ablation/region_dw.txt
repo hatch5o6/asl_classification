@@ -1,0 +1,4 @@
+configs/region_ablation/autsl_face_only.yaml	ra_auf
+configs/region_ablation/autsl_lips_only.yaml	ra_aul
+configs/region_ablation/asl_citizen_face_only.yaml	ra_asf
+configs/region_ablation/asl_citizen_lips_only.yaml	ra_asl

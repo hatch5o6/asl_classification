@@ -1,0 +1,3 @@
+configs/encoder_comparison/gsl/gru/iter_270.yaml	gru_gsl_iter270
+configs/encoder_comparison/gsl/stgcn/iter_270.yaml	stgcn_gsl_iter270
+configs/encoder_comparison/gsl/spoter/iter_270.yaml	spoter_gsl_iter270

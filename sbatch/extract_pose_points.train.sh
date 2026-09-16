@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --time=72:00:00   # walltime.  hours:minutes:seconds
-#SBATCH --mem=1024000M
+#SBATCH --mem=32000M
 #SBATCH --gpus=0
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END

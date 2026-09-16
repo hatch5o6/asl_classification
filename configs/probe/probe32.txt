@@ -1,0 +1,1 @@
+configs/probe/gsl_1gpu_32cpu.yaml	probe32

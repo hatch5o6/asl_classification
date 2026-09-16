@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:a100:4
 #SBATCH --ntasks=4
-#SBATCH --mem=64G
+#SBATCH --mem=81920M
 #SBATCH --qos=cs
 #SBATCH --partition=cs
 #SBATCH --output=/home/ccoulson/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_train_l0_fixed_v1.out

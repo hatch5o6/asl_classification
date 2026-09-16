@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --time=72:00:00
-#SBATCH --mem=64000M
+#SBATCH --mem=32000M
 #SBATCH --gpus=0
 #SBATCH --cpus-per-task=1
 #SBATCH --mail-type=BEGIN

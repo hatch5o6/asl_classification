@@ -25,6 +25,13 @@ class JointPruningModule(nn.Module):
         >>> probs = pruner.get_selection_probs()  # Get importance of each joint
     """
     
+    # Hard-concrete constants (Louizos et al., ICLR 2018). The stretch interval
+    # (gamma, zeta) extends the concrete distribution past [0, 1] so that clamping
+    # puts real probability mass on exactly 0 and exactly 1. A plain sigmoid cannot
+    # reach either endpoint, which is why the sigmoid gate never closes.
+    HC_GAMMA = -0.1
+    HC_ZETA = 1.1
+
     def __init__(
         self,
         num_joints: int,
@@ -32,7 +39,9 @@ class JointPruningModule(nn.Module):
         hard: bool = False,
         init_keep_prob: float = 0.9,
         random_init: bool = False,
-        random_init_std: float = 0.1
+        random_init_std: float = 0.1,
+        gate_type: str = "sigmoid",
+        hc_beta: float = 2.0 / 3.0
     ):
         """
         Args:
@@ -44,9 +53,13 @@ class JointPruningModule(nn.Module):
             random_init_std: Standard deviation of random noise (default 0.1)
         """
         super().__init__()
+        assert gate_type in ("sigmoid", "hard_concrete"), \
+            f"gate_type must be 'sigmoid' or 'hard_concrete', got {gate_type}"
         self.num_joints = num_joints
         self.temperature = temperature
         self.hard = hard
+        self.gate_type = gate_type
+        self.hc_beta = hc_beta
 
         # Learnable logits: one scalar per joint
         # Initialize so that log-odds corresponds to init_keep_prob
@@ -99,7 +112,9 @@ class JointPruningModule(nn.Module):
         #   - Enables ablation: can threshold at different K values post-hoc
         #   - Measures information flow: prob × activation magnitude
 
-        if self.training:
+        if self.gate_type == "hard_concrete":
+            selection_mask = self._hard_concrete_mask()
+        elif self.training:
             # Soft selection during training (continuous probabilities)
             # Temperature scaling controls decision sharpness
             selection_mask = torch.sigmoid(self.joint_logits / self.temperature)
@@ -119,7 +134,42 @@ class JointPruningModule(nn.Module):
         
         return pruned
     
+    def _hard_concrete_mask(self) -> torch.Tensor:
+        """
+        Hard-concrete gate (Louizos et al. 2018).
+
+        Training draws a stochastic sample; evaluation uses the deterministic
+        estimator. Both stretch the (0, 1) sigmoid output to (gamma, zeta) and clamp,
+        which is what allows a gate to take the value exactly 0 or exactly 1.
+        """
+        if self.training:
+            u = torch.rand(self.num_joints, device=self.joint_logits.device)
+            u = u.clamp(1e-6, 1 - 1e-6)
+            s = torch.sigmoid(
+                (torch.log(u) - torch.log1p(-u) + self.joint_logits) / self.hc_beta
+            )
+        else:
+            s = torch.sigmoid(self.joint_logits)
+        s_stretched = s * (self.HC_ZETA - self.HC_GAMMA) + self.HC_GAMMA
+        return s_stretched.clamp(0.0, 1.0)
+
+    def get_open_probs(self) -> torch.Tensor:
+        """
+        P(gate > 0) per joint. This is the quantity the expected-L0 penalty sums,
+        and the importance score to rank by under the hard-concrete gate.
+        """
+        shift = self.hc_beta * torch.log(
+            torch.tensor(-self.HC_GAMMA / self.HC_ZETA, device=self.joint_logits.device)
+        )
+        return torch.sigmoid(self.joint_logits - shift)
+
+    def expected_l0(self) -> torch.Tensor:
+        """Expected number of non-zero gates; differentiable, closed form."""
+        return self.get_open_probs().sum()
+
     def get_selection_probs(self) -> torch.Tensor:
+        if self.gate_type == "hard_concrete":
+            return self.get_open_probs()
         return torch.sigmoid(self.joint_logits)
     
     def get_active_joints(self, threshold: float = 0.5) -> torch.Tensor:
@@ -128,7 +178,7 @@ class JointPruningModule(nn.Module):
         Args: threshold: Probability threshold for being "active"
         Returns: Boolean mask of shape (num_joints,)
         """
-        probs = torch.sigmoid(self.joint_logits)
+        probs = self.get_selection_probs()
         return probs > threshold
     
     def get_pruning_ratio(self) -> float:
@@ -152,9 +202,9 @@ class JointPruningModule(nn.Module):
     def get_summary(self) -> dict:
         """Get summary statistics"""
         active = self.get_active_joints(threshold=0.5)
-        probs = torch.sigmoid(self.joint_logits)
-        
-        return {
+        probs = self.get_selection_probs()
+
+        summary = {
             "num_active": active.sum().item(),
             "num_total": self.num_joints,
             "pruning_ratio": (~active).float().mean().item(),
@@ -162,6 +212,21 @@ class JointPruningModule(nn.Module):
             "min_prob": probs.min().item(),
             "max_prob": probs.max().item(),
         }
+
+        if self.gate_type == "hard_concrete":
+            # The diagnostic that matters: gates the deterministic estimator sends
+            # to exactly 0. The sigmoid gate can never produce a nonzero count here.
+            was_training = self.training
+            self.eval()
+            with torch.no_grad():
+                mask = self._hard_concrete_mask()
+            if was_training:
+                self.train()
+            summary["num_exact_zero"] = (mask == 0.0).sum().item()
+            summary["num_exact_one"] = (mask == 1.0).sum().item()
+            summary["expected_l0"] = self.expected_l0().item()
+
+        return summary
 
 
 def l0_penalty(pruning_layer: JointPruningModule, weight: float = 0.001,
@@ -192,13 +257,25 @@ def l0_penalty(pruning_layer: JointPruningModule, weight: float = 0.001,
         - Classification loss per sample: ~1.5
         - L0 penalty: 20.0 * (418 / (8 * 543)) = 20.0 * 0.096 = 1.92 (balanced!)
     """
+    if pruning_layer.gate_type == "hard_concrete":
+        # Closed-form expected L0: the number of gates expected to stay open.
+        l0_loss = pruning_layer.expected_l0()
+        if normalize:
+            # Normalize by num_joints ONLY. The gate is a structural parameter
+            # shared across every sample, not a per-sample quantity, so dividing
+            # by batch_size shrinks the gradient on that shared parameter by the
+            # batch size for no principled reason -- with batch_size=64 that alone
+            # made the old penalty 64x too weak to ever close a gate.
+            l0_loss = l0_loss / pruning_layer.num_joints
+        return weight * l0_loss
+
     keep_probs = torch.sigmoid(pruning_layer.joint_logits)
     l0_loss = keep_probs.sum()
 
     if normalize:
-        # Normalize to be comparable to per-sample classification loss
-        # This makes the L0 penalty represent "average probability per sample"
-        # rather than "total probability across all joints"
+        # Legacy sigmoid path, preserved so existing configs reproduce exactly.
+        # NOTE: the /batch_size term here is why the sigmoid gate cannot close;
+        # see the hard_concrete branch above.
         l0_loss = l0_loss / (batch_size * pruning_layer.num_joints)
 
     return weight * l0_loss

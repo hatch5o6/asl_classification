@@ -102,6 +102,8 @@ class RGBDSkel_Dataset(Dataset):
         use_z_coord=False,  # Include Z coordinate (3D) instead of just X, Y (2D)
         selected_joint_indices=None,  # Custom joint index selection (list of 543-space indices)
         augment_config=None,  # Dict of augmentation settings (None = no augmentation)
+        cache_skeletons=False,  # Memoize preprocessed clips (safe only without augmentation)
+        normalization_scope="global",  # "global" | "per_group" | "per_landmark"
     ):
         self.annotations = self._read_annotations(annotations)
         self.processor = processor
@@ -112,6 +114,42 @@ class RGBDSkel_Dataset(Dataset):
         self.num_coords = 3 if use_z_coord else 2
         self.selected_joint_indices = selected_joint_indices
         self.augment_config = augment_config or {}
+
+        # Scope of the standardization statistics (see _standardize).
+        #   "global"       - one mean/std per coordinate axis over all frames and all landmarks.
+        #                    Original behaviour; kept as the default so every prior run stays
+        #                    reproducible bit-for-bit.
+        #   "per_group"    - one mean/std per coordinate axis per MediaPipe anatomical group.
+        #                    Puts face, pose and hand landmarks on a common amplitude scale, so
+        #                    the L0 gate compares them by their own variation rather than by raw
+        #                    motion magnitude (face landmarks move ~13x less than pose landmarks).
+        #   "per_landmark" - one mean/std per landmark per axis, over time only. Fully removes
+        #                    amplitude differences. Diagnostic; also discards absolute location.
+        #   "subset"       - global-style statistics, but pooled over ONLY the landmarks that
+        #                    `selected_joint_indices` retains. Equivalent to subsetting first and
+        #                    then standardizing, while leaving the pipeline order (and therefore
+        #                    augmentation semantics) untouched. Without this, a K-landmark model
+        #                    receives inputs centred and scaled by statistics belonging to the
+        #                    543-K landmarks that were discarded: measured on the real K=24 subset
+        #                    the encoder sees mean (+1.17, +1.57) and std (2.21, 1.16) instead of
+        #                    0 and 1.
+        assert normalization_scope in ("global", "per_group", "per_landmark", "subset"), \
+            f"unknown normalization_scope: {normalization_scope}"
+        assert normalization_scope != "subset" or selected_joint_indices is not None, \
+            "normalization_scope='subset' requires selected_joint_indices"
+        self.normalization_scope = normalization_scope
+
+        # Skeleton preprocessing (gap-fill + normalize + joint select + frame sample) is
+        # deterministic per clip, so a validation set is recomputed identically on every
+        # pass. On ASL Citizen that is 51% of all clip preprocessing in the run -- its val
+        # split is 10,304 clips and val_interval=0.25 replays it four times an epoch.
+        # Caching is only correct when nothing random is applied, so it self-disables
+        # if any augmentation is configured.
+        self.cache_skeletons = bool(cache_skeletons) and not self.augment_config
+        if cache_skeletons and self.augment_config:
+            print("cache_skeletons requested but augmentation is active; caching disabled "
+                  "(augmented clips must differ between epochs).")
+        self._skel_cache = {}
 
         # Mutually exclusive: can't use both TSLFormer and custom selection
         assert not (use_tslformer_joints and selected_joint_indices is not None), \
@@ -145,28 +183,108 @@ class RGBDSkel_Dataset(Dataset):
 
     def interpolate_with_gaps(self, pose_data, max_gap=3, sentinel=999.0):
         pose_data = pose_data.copy()
-        T, L, F = pose_data.shape
 
-        for lm in range(L):
-            for feat in range(F):
-                s = pd.Series(pose_data[:, lm, feat])
+        # Only (landmark, feature) columns that actually contain a NaN need touching.
+        # Building a pandas Series for all 543x2 columns cost ~96 ms/clip and dominated
+        # training wall-clock; face and pose landmarks are ~0% missing, so the vast
+        # majority of that work was on NaN-free columns where interpolate + fillna are
+        # both no-ops. Numerically identical to the per-column loop it replaces.
+        needs_fill = np.isnan(pose_data).any(axis=0)  # (L, F)
 
-                if s.isna().any():
-                    # only fill NaN runs of length <= max_gap
-                    s = s.interpolate(
-                        method='linear',
-                        limit=max_gap,
-                        limit_direction='both'
-                    )
-                    # very long gaps remain NaN → turn them into sentinel
-                    s = s.fillna(sentinel)
-
-                pose_data[:, lm, feat] = s.values
+        for lm, feat in zip(*np.nonzero(needs_fill)):
+            s = pd.Series(pose_data[:, lm, feat])
+            # only fill NaN runs of length <= max_gap
+            s = s.interpolate(
+                method='linear',
+                limit=max_gap,
+                limit_direction='both'
+            )
+            # very long gaps remain NaN → turn them into sentinel
+            s = s.fillna(sentinel)
+            pose_data[:, lm, feat] = s.values
 
         return pose_data
 
 
     def _load_skeleton(self, path):
+        if self.cache_skeletons:
+            hit = self._skel_cache.get(path)
+            if hit is not None:
+                # Clone so a downstream in-place op cannot corrupt the cached copy.
+                return hit[0].clone(), hit[1]
+            result = self._load_skeleton_uncached(path)
+            self._skel_cache[path] = result
+            return result[0].clone(), result[1]
+        return self._load_skeleton_uncached(path)
+
+    # MediaPipe Holistic landmark blocks: face, pose, left hand, right hand.
+    LANDMARK_GROUPS = ((0, 468), (468, 501), (501, 522), (522, 543))
+
+    def _standardize(self, keypoints):
+        """Mean-center and scale to unit variance, at the configured scope.
+
+        Sentinel zeros (frames MediaPipe never filled) are excluded from the statistics
+        and written back as zeros, so a missing landmark stays missing.
+
+        Args:
+            keypoints: (T, J, C) array
+        Returns:
+            standardized (T, J, C) array
+        """
+        valid_mask = (keypoints != 0.0)
+        if valid_mask.sum() == 0:
+            return keypoints
+
+        if self.normalization_scope == "subset":
+            # Pool statistics over the retained landmarks only, then apply to the whole array;
+            # the discarded columns are dropped downstream, so this is identical to subsetting
+            # first and standardizing, but keeps augmentation operating on the same
+            # representation as every other scope.
+            sel = np.asarray(self.selected_joint_indices, dtype=int)
+            sub, sub_mask = keypoints[:, sel, :], valid_mask[:, sel, :]
+            if sub_mask.sum() == 0:
+                return np.where(valid_mask, keypoints, 0.0)
+            n = sub_mask.sum(axis=(0, 1)) + 1e-8
+            mean = (np.where(sub_mask, sub, 0).sum(axis=(0, 1)) / n).reshape(1, 1, self.num_coords)
+            centered_sub = np.where(sub_mask, sub - mean, 0.0)
+            std = np.sqrt(np.where(sub_mask, centered_sub ** 2, 0).sum(axis=(0, 1)) / n)
+            std = std.reshape(1, 1, self.num_coords) + 1e-8
+            return np.where(valid_mask, (keypoints - mean) / std, 0.0)
+
+        if self.normalization_scope == "global":
+            # Original path. Statistics pooled over every frame and every landmark, so a
+            # single scalar per axis rescales all J landmarks. Note this preserves their
+            # relative motion magnitudes exactly -- it is a common factor.
+            axes, shape = (0, 1), (1, 1, self.num_coords)
+        elif self.normalization_scope == "per_landmark":
+            axes, shape = (0,), (1, keypoints.shape[1], self.num_coords)
+        else:  # per_group -- handled blockwise below
+            out = keypoints.copy()
+            for start, end in self.LANDMARK_GROUPS:
+                if start >= keypoints.shape[1]:
+                    break
+                stop = min(end, keypoints.shape[1])
+                block = keypoints[:, start:stop, :]
+                mask = valid_mask[:, start:stop, :]
+                if mask.sum() == 0:
+                    out[:, start:stop, :] = 0.0
+                    continue
+                n = mask.sum(axis=(0, 1)) + 1e-8
+                mean = (np.where(mask, block, 0).sum(axis=(0, 1)) / n).reshape(1, 1, self.num_coords)
+                centered = np.where(mask, block - mean, 0.0)
+                std = np.sqrt(np.where(mask, centered ** 2, 0).sum(axis=(0, 1)) / n)
+                std = std.reshape(1, 1, self.num_coords) + 1e-8
+                out[:, start:stop, :] = np.where(mask, centered / std, 0.0)
+            return out
+
+        n = valid_mask.sum(axis=axes) + 1e-8
+        mean = (np.where(valid_mask, keypoints, 0).sum(axis=axes) / n).reshape(shape)
+        keypoints = np.where(valid_mask, keypoints - mean, 0.0)
+        std = np.sqrt(np.where(valid_mask, keypoints ** 2, 0).sum(axis=axes) / n)
+        std = std.reshape(shape) + 1e-8
+        return np.where(valid_mask, keypoints / std, 0.0)
+
+    def _load_skeleton_uncached(self, path):
         """
         Load skeleton keypoints with preprocessing matching TSLFormer:
         1. Extract x, y (and optionally z) coordinates
@@ -187,23 +305,7 @@ class RGBDSkel_Dataset(Dataset):
         # Normalize coordinates (TSLFormer does this)
         # MediaPipe outputs are already in [0, 1] range, but we mean-center and scale
         # to have zero mean and unit variance per sequence for better model convergence
-
-        # Mean-center across time and joints (per coordinate dimension)
-        valid_mask = (keypoints != 0.0)  # Don't include sentinel values in stats
-        if valid_mask.sum() > 0:
-            # Compute mean only over valid (non-sentinel) coordinates
-            mean = np.where(valid_mask, keypoints, 0).sum(axis=(0, 1)) / (valid_mask.sum(axis=(0, 1)) + 1e-8)
-            mean = mean.reshape(1, 1, self.num_coords)  # (1, 1, num_coords) for broadcasting
-
-            # Subtract mean (only from valid coordinates)
-            keypoints = np.where(valid_mask, keypoints - mean, 0.0)
-
-            # Compute std only over valid coordinates
-            std = np.sqrt(np.where(valid_mask, keypoints ** 2, 0).sum(axis=(0, 1)) / (valid_mask.sum(axis=(0, 1)) + 1e-8))
-            std = std.reshape(1, 1, self.num_coords) + 1e-8  # Add epsilon to avoid division by zero
-
-            # Scale to unit variance (only valid coordinates)
-            keypoints = np.where(valid_mask, keypoints / std, 0.0)
+        keypoints = self._standardize(keypoints)
 
         # Apply skeleton augmentation (training only — caller sets augment_config)
         if self.augment_config.get("spatial", False):

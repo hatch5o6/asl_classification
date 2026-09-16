@@ -3,7 +3,7 @@
 #SBATCH --time=01:00:00
 #SBATCH --ntasks-per-node=1
 #SBATCH --nodes=1
-#SBATCH --mem=64000M
+#SBATCH --mem=32000M
 #SBATCH --gpus=1
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user %u@byu.edu

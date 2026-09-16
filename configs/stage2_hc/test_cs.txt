@@ -1,0 +1,13 @@
+configs/stage2_hc/asl_citizen/topk48_seed4002.yaml	te_ac48_2
+configs/stage2_hc/asl_citizen/topk10_seed4000.yaml	te_ac10_0
+configs/stage2_hc/asl_citizen/topk10_seed4001.yaml	te_ac10_1
+configs/stage2_hc/asl_citizen/topk10_seed4002.yaml	te_ac10_2
+configs/stage2_hc/gsl/topk543_seed4000.yaml	te_gs543_0
+configs/stage2_hc/gsl/topk543_seed4001.yaml	te_gs543_1
+configs/stage2_hc/gsl/topk543_seed4002.yaml	te_gs543_2
+configs/stage2_hc/gsl/topk48_seed4000.yaml	te_gs48_0
+configs/stage2_hc/gsl/topk48_seed4001.yaml	te_gs48_1
+configs/stage2_hc/gsl/topk48_seed4002.yaml	te_gs48_2
+configs/stage2_hc/gsl/topk10_seed4000.yaml	te_gs10_0
+configs/stage2_hc/gsl/topk10_seed4001.yaml	te_gs10_1
+configs/stage2_hc/gsl/topk10_seed4002.yaml	te_gs10_2

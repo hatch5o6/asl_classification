@@ -112,7 +112,9 @@ class SignClassificationLightning(L.LightningModule):
                     num_joints=self.config["num_pose_points"],
                     init_keep_prob=self.config["init_keep_probability"],
                     random_init=use_random_init,
-                    random_init_std=self.config.get("random_init_std", 0.1)
+                    random_init_std=self.config.get("random_init_std", 0.1),
+                    gate_type=self.config.get("gate_type", "sigmoid"),
+                    hc_beta=self.config.get("hc_beta", 2.0 / 3.0)
                 )
 
             # Gating mechanism (experiment-level, outside encoder)
@@ -236,14 +238,22 @@ class SignClassificationLightning(L.LightningModule):
             #
             # Previous schedule (1.0 → 0.1 over 200k) was too slow - model converged to 0.77
             # equilibrium before temperature got low enough to force binary decisions
-            temp_start = self.config.get("temp_start", 10.0)
-            temp_end = self.config.get("temp_end", 0.01)
-            temp_anneal_steps = self.config.get("temp_anneal_steps", 50000)
+            # The hard-concrete gate uses a FIXED beta (2/3, per Louizos et al.);
+            # annealing it toward 0 saturates the sigmoid, kills the gradient on
+            # joint_logits, and freezes the ranking at whatever the early
+            # high-temperature phase produced. Only the legacy sigmoid gate anneals.
+            if self.joint_pruning.gate_type != "hard_concrete":
+                temp_start = self.config.get("temp_start", 10.0)
+                temp_end = self.config.get("temp_end", 0.01)
+                temp_anneal_steps = self.config.get("temp_anneal_steps", 50000)
 
-            # Exponential decay: temp = start * (end/start)^progress
-            temp_progress = min(1.0, self.global_step / temp_anneal_steps)
-            temperature = temp_start * (temp_end / temp_start) ** temp_progress
-            self.joint_pruning.set_temperature(temperature)
+                # Exponential decay: temp = start * (end/start)^progress
+                temp_progress = min(1.0, self.global_step / temp_anneal_steps)
+                temperature = temp_start * (temp_end / temp_start) ** temp_progress
+                self.joint_pruning.set_temperature(temperature)
+            else:
+                # Fixed beta; reported unchanged so the logged series stays valid.
+                temperature = self.joint_pruning.hc_beta
 
             # Add L0 regularization to encourage sparsity
             # Supports three modes:
@@ -282,6 +292,11 @@ class SignClassificationLightning(L.LightningModule):
             self.log("num_active_joints", summary["num_active"], on_epoch=True)
             self.log("avg_joint_prob", summary["avg_prob"], on_epoch=True)
             self.log("temperature", temperature, on_step=True)
+            if "num_exact_zero" in summary:
+                # The diagnostic the sigmoid gate could never move off zero.
+                self.log("num_exact_zero", float(summary["num_exact_zero"]), on_epoch=True)
+                self.log("num_exact_one", float(summary["num_exact_one"]), on_epoch=True)
+                self.log("expected_l0", summary["expected_l0"], on_epoch=True)
 
             # Log joint probability statistics periodically for visualization
             # Every 1000 steps, log distribution statistics

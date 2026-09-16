@@ -1,0 +1,11 @@
+configs/stage2_hc/autsl/matchrand48_draw0.yaml	mrau48_0
+configs/stage2_hc/autsl/matchrand48_draw1.yaml	mrau48_1
+configs/stage2_hc/autsl/matchrand48_draw2.yaml	mrau48_2
+configs/stage2_hc/autsl/matchrand48_draw3.yaml	mrau48_3
+configs/stage2_hc/autsl/matchrand48_draw4.yaml	mrau48_4
+configs/stage2_hc/autsl/matchrand24_draw0.yaml	mrau24_0
+configs/stage2_hc/autsl/matchrand24_draw1.yaml	mrau24_1
+configs/stage2_hc/autsl/matchrand24_draw2.yaml	mrau24_2
+configs/stage2_hc/autsl/matchrand24_draw3.yaml	mrau24_3
+configs/stage2_hc/autsl/matchrand24_draw4.yaml	mrau24_4
+configs/stage2_hc/autsl/matchrand10_draw0.yaml	mrau10_0

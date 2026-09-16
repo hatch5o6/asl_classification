@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --time=72:00:00
-#SBATCH --mem=32G
+#SBATCH --mem=49152M
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --output=/home/ccoulson/groups/grp_asl_classification/nobackup/archive/SLR/slurm_outputs/%j_gating_sweep.out

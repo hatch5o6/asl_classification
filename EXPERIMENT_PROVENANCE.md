@@ -700,7 +700,7 @@ be made at K>=24 and explicitly qualified at K=10.
 Net: the cascade case is *stronger* on test — significant at ASL Citizen K=48 and K=24 and
 AUTSL K=10, with GSL K=10 marginal (p=.052).
 
-### Normalization ablation on TEST (n=1; replicates in flight)
+### Normalization ablation on TEST (n=3 per lang x K; replicates COMPLETE, verified 2026-09-16)
 
 Direction matches val everywhere and is larger: AUTSL -5.37 / +0.40 / -6.36, ASL Citizen
 -0.80 / -2.11 / -2.71, GSL +2.34 / +3.29 / +2.29 at K=48/24/10. Subset-statistics normalization
@@ -922,4 +922,243 @@ with bottom-up `os.rmdir`, which refuses non-empty directories. All 25 resubmitt
 `train_visfilt_2gpu.sh`, `test_visfilt_array.sh`, `run_cascade.sh` and
 `measure_detection_rates.sh`, so it no longer depends on remembering a CLI flag.
 
-## Composition-matched random baseline — 45 runs trained, tests `13721344`/`13721345` in flight
+## Composition-matched random baseline — COMPLETE 2026-09-16
+
+45 runs trained, all 45 tested. Test arrays `13721345` (cs half, 22 tasks) and `13721344` (dw half,
+23 tasks) — a partition split of one config list, not mirrors. All 45 COMPLETED; coverage verified by
+enumerating configs with `checkpoints/*.ckpt` but no `predictions/*.metrics.json` (0 remaining).
+
+Design: 5 draws per (language, K in {48,24,10}), each draw a different subset trained at **seed 4000**.
+The learned arm is `topk{K}` over **5 seeds** on a fixed subset. The two arms vary different things, so
+they are **not paired** — Welch's t-test, n=5 per arm. The `TODO(matched-random)` marker in the draft
+said "paired over draws"; that was wrong about how these were run and the paper now says unpaired.
+
+| lang | K | learned | matched-rand | d(learn−match) | p | uniform-rand | d(match−unif) |
+|---|---|---|---|---|---|---|---|
+| AUTSL | 48 | 88.71±1.44 | 87.76±0.61 | +0.96 | .225 | 72.97±9.46 | +14.78 |
+| AUTSL | 24 | 88.23±0.62 | 87.94±1.34 | +0.29 | .679 | 50.60±20.72 | +37.34 |
+| AUTSL | 10 | 84.07±0.83 | 84.95±1.57 | −0.88 | .309 | 31.93±16.36 | +53.03 |
+| ASL Citizen | 48 | 63.32±0.80 | 61.34±0.82 | **+1.98** | **.005** | 27.12±10.75 | +34.22 |
+| ASL Citizen | 24 | 60.09±1.10 | 58.32±1.70 | +1.77 | .093 | 17.27±6.74 | +41.05 |
+| ASL Citizen | 10 | 52.33±1.98 | 51.02±2.44 | +1.32 | .378 | 8.65±8.47 | +42.36 |
+| GSL | 48 | 70.43±2.03 | 70.43±1.31 | +0.00 | 1.000 | 54.70±8.73 | +15.73 |
+| GSL | 24 | 71.13±1.47 | 69.36±0.73 | +1.77 | .053 | 46.42±7.39 | +22.94 |
+| GSL | 10 | 67.09±1.30 | 68.11±1.11 | −1.03 | .216 | 30.76±19.71 | +37.35 |
+
+**Result.** learned − matched = **+0.69 mean over 9 cells, 6/9 positive, significant in exactly one**
+(ASL Citizen K=48). matched − uniform = **+33.20 mean, 9/9 positive, +14.78 to +53.03**.
+
+Nearly all of the apparent benefit of learned selection is **anatomical composition** — how many face,
+body and hand landmarks to keep — and almost none is landmark identity within a group. This bounds the
+"Selection matters, not just budget" claim, which was built on the uniform-random contrast alone, and it
+is consistent with the 42/48 overlap with the hand-crafted TSLFormer subset.
+
+Written into `docs/emnlp_v2.tex` §5.1; the abstract, the §5.1 paragraph heading (now "Against uniform
+random subsets") and the conclusion were revised so the 16–36pp uniform figure no longer stands
+unqualified. Backup: `docs/.backups/emnlp_v2.pre-matchedrandom.tex`.
+
+## K=10 reframing — 2026-09-16
+
+The draft treated K=10 as "the limit of aggressive pruning" using **top-K** numbers only. That
+under-sold the result, because §5.2 already establishes the cascade wins at K=10. Recomputed paired
+against each corpus's own K=543 baseline:
+
+| lang | casc10 | vs 543 | p | vs best budget |
+|---|---|---|---|---|
+| AUTSL | 86.76±1.29 | **+3.58** | .011 | −1.95 (best 88.71 @48) |
+| GSL | 69.37±1.11 | +0.47 | .560 | −2.43 (best 71.81 @100) |
+| ASL Citizen | 52.87±0.98 | **−4.68** | .001 | −10.45 (best 63.32 @48) |
+
+So 10 landmarks — 1.8% of the skeleton — beat the full representation on AUTSL, match it on GSL, and
+fail only on ASL Citizen, whose vocabulary is 2,731 glosses against 226 and 310.
+
+Pairs with the matched-random control: at K=10 a composition-matched random draw does as well as the
+learned subset on all three corpora (AUTSL −0.88, ASL Citizen +1.32, GSL −1.03, none significant), and
+K=10 is also the least seed-stable budget (7–10 of 10 agree). The practical reading is that *which* ten
+landmarks is not the hard part — the anatomical composition is.
+
+Paper edits: §5.1 heading "The limit of aggressive pruning" → "Ten landmarks", paragraph rewritten to
+lead with what is retained; abstract, intro, contributions (ii), Figure 1 caption and the stage-1
+stability appendix all corrected — four of them still claimed pruning stops helping at K=10, which
+holds only for the single-pass arm. Backup: `docs/.backups/emnlp_v2.pre-k10emphasis.tex`.
+
+## Paper refocus — 2026-09-16
+
+User call: limit claims to the most impressive findings, expand only the important parts.
+Decided spine (user-approved): **how few** is the headline — 10 landmarks (1.8%) match or beat the
+full skeleton on 2/3 corpora — with the composition-matched control as the *explanation* for why so
+little is lost, and the 42/48 hand-crafted overlap as a consequence of that explanation.
+
+Restructure:
+- **Abstract** rebuilt as a single arc (48 → 10 → composition → hand-crafted convergence), replacing
+  five scattered quantitative claims. ~300 → 251 words.
+- **Intro** refocused on "how few, and what is the criterion actually deciding"; contributions
+  rewritten so (iii) is the composition finding and the cross-lingual analysis folds into (iv).
+- **§5.1 reordered**: Pareto → Ten landmarks → uniform random (compressed to a setup) →
+  composition-matched control → hand-crafted comparison. Hand-crafted now *follows* the composition
+  result so it reads as explained rather than as an independent claim.
+- **Cross-language overlap** compressed 536 → ~230 words of prose, figure kept, stratified-null result
+  and the K>=24 restriction retained. Reviewers Vb1P and pa2X both named this a strength and Vb1P asked
+  for exactly this permutation test, so it was compressed rather than cut.
+- **Conclusion** rewritten to the same arc; removed a duplicated hand-crafted paragraph.
+- Removed a duplicated random-baseline-instability paragraph; fixed two cross-references that reversed
+  direction in the reorder (`above` → `below`/`follows`); restored the `fig:consensus` reference that
+  the compression dropped.
+
+Body 6,639 → 6,262 words. Excluding Limitations/Ethics/Acknowledgments (which do not count toward the
+ACL 8-page limit), the counted body is ~5,240 words plus 2 tables and 3 figures.
+Backup: `docs/.backups/emnlp_v2.pre-focus.tex`.
+
+## Self-review fixes — 2026-09-17
+
+Adversarial read of the refocused draft surfaced one substantive design problem and several
+overclaims. All edits in `docs/emnlp_v2.tex`; backup `docs/.backups/emnlp_v2.pre-reviewfixes2.tex`.
+
+**The real problem: the composition-matched control is near-degenerate at K=48.** The learned K=48
+subsets retain 17-21 of the 21 landmarks in each hand, so a draw matching that composition is largely
+forced. Minimum possible overlap with the learned subset, computed as sum_g max(0, 2*c_g - avail_g):
+
+| lang | K=48 | K=24 | K=10 |
+|---|---|---|---|
+| AUTSL | 34/48 (71%) | 11/24 (46%) | 0/10 |
+| ASL Citizen | 34/48 (71%) | 3/24 (12%) | 0/10 |
+| GSL | 36/48 (75%) | 9/24 (38%) | 0/10 |
+
+Realized draws overlap the learned subset by 78-82% at K=48. So "landmark identity does not matter"
+was being inferred from a manipulation that barely varies identity. Worse, the ONE significant cell
+(ASL Citizen K=48) sits where the control is most degenerate, and the null cells sit at K=10 where it
+is genuinely random — the opposite of a clean story. **The paper now reports the forced-overlap
+figures and restricts the composition claim to K=10.**
+
+Other corrections:
+- Abstract/intro/conclusion named the cascade arm for the K=10 result. §5.2 says explicitly that
+  reporting the better arm per cell "would inflate the apparent frontier" — the abstract was doing it.
+- "Costs under two points at every budget" replaced: CIs reach [-1.95,+4.59], so these are failures to
+  detect, not equivalence. No TOST was run.
+- Holm was applied to the 15 pruned-vs-full contrasts only; the strategy, composition-matched and
+  hand-crafted families are now explicitly flagged as uncorrected.
+- GSL's shared val/test signer now qualifies the headline claim, not just Limitations.
+- Stage-1 split provenance stated: gate logits update from training gradients only, ranking read from
+  `last.ckpt` at a fixed 40k-step budget (verified in `src/train.py` and the ranking pipeline), so no
+  val/test data informs selection.
+- New Limitations paragraph on missingness: ASL Citizen hands present in 30-37% of frames, zero-filled
+  to the post-standardization mean with no missingness indicator. The K=10 ASL Citizen failure is
+  attributed to label space but detection is a live competing explanation, untested.
+- Face-only absolute accuracies (13.49 / 1.13 / 8.51%) now accompany the "26-31x chance" framing.
+- Connected the within-group interchangeability finding to the 468-way face-redundancy hypothesis;
+  they are plausibly one mechanism.
+
+**Word-count correction:** earlier counts used a helper that treated escaped `\%` as a comment start
+and truncated those lines. Corrected counted body (Intro→Conclusion, excluding Limitations/Ethics/
+Acknowledgments, which do not count toward the ACL 8-page limit) is **6,168 words**, not the ~5,240
+previously recorded. Abstract 262.
+
+## Inference efficiency vs K — measured 2026-09-17 (job 13738582)
+
+Run because a reviewer may read "1.8% of the skeleton" as a compute claim. It is not one, and now we
+can say so with numbers. `scripts/measure_efficiency.py`, `sbatch/measure_efficiency.sh`; results in
+`docs/EFFICIENCY_gpu.md` / `docs/EFFICIENCY_cpu.md` (+ .json). A100-80GB, torch 2.9.0+cu128.
+
+**Reducing K from 543 to 10 changes almost nothing about inference cost.** The encoder flattens the K
+landmarks per frame into one vector and projects to hidden=512, so K touches ONLY `self.proj`; the
+BERT stack always sees T=16 tokens of width 512.
+
+| metric (AUTSL, K=543 -> K=10) | change |
+|---|---|
+| FLOPs | 0.2048 -> 0.2037 GFLOPs (**−0.53%**) |
+| Parameters | 7.78M -> 7.23M (−7.0%) |
+| GPU latency b=1 | 1.47 -> 1.46 ms (within noise) |
+| GPU latency b=64 | 1.85 -> 1.51 ms |
+| CPU latency b=1 | 6.13 -> 5.78 ms (−5.7%) |
+| CPU latency b=64 | 178.9 -> 162.1 ms (−9.4%) |
+| **input floats per frame** | **1086 -> 20 (−98.2%)** |
+
+The K-dependent share of FLOPs is 0.54% at K=543 and 0.01% at K=10. Analytic FLOPs and measured
+latency agree.
+
+**Interpretation.** The saving from landmark pruning is in the *representation*, not the recognizer:
+98% less pose data to store and transmit, and — not measured here — the option to skip MediaPipe's
+face-mesh detector entirely at extraction time, since no face landmark is ever selected. That upstream
+saving is where a practical argument would have to be made, plus the privacy angle of not retaining a
+468-point face mesh. Encoder FLOPs are not an argument available to this paper.
+
+**Decision (user, 2026-09-17): keep this OUT of the paper.** The findings are about landmark count, not
+compute. Verified the draft makes no efficiency, latency or "lightweight" claim anywhere, so nothing
+needed changing. Hold these numbers for the review period in case a reviewer asks.
+
+Still outstanding and unrelated: the `TODO(compute)` markers in the Compute Resources appendix want
+*training* wall-clock and GPU-hours, which ACL's reproducibility checklist does ask for.
+
+## Compute Resources appendix filled — 2026-09-17
+
+Pulled from SLURM accounting, filtered by `WorkDir == /home/ccoulson/asl_classification` (other
+projects' jobs share the account and were excluded that way rather than by job-name guessing).
+Scope: 2026-08 onward, i.e. the hard-concrete run set that produced every reported number.
+
+| | value |
+|---|---|
+| Training runs (COMPLETED, >=5 min) | 415 |
+| Test passes (COMPLETED) | 372 |
+| Allocated GPU-hours | 1,017.3 |
+| Single-GPU-equivalent hours | 769.8 |
+| From over-allocated (2/8 GPU) jobs | 323.9 GPU-h across 42 jobs |
+| Failed/cancelled | 42 jobs, 11.3 GPU-h (mostly the dw-2-4 black hole) |
+
+Median wall-clock per stage-2 training run on one A100: AUTSL 0.79 h (IQR 0.62-0.99, n=116),
+ASL Citizen 2.91 h (IQR 2.69-4.13, n=144), GSL 0.57 h (IQR 0.49-0.71, n=120). Test passes 1.3 min.
+
+Both totals are reported in the paper: allocated GPU-hours is what we actually consumed, and the
+single-GPU-equivalent figure is what a reproduction under the final 1-GPU/16-CPU configuration should
+expect. The gap is the early gate-sweep and stability jobs that reserved 8 or 2 GPUs before we
+established the workload is DataLoader-bound.
+
+**Also corrected:** the appendix previously asserted "two GPUs distributed via DDP", which was stale —
+the final configuration is 1 GPU + 16 CPU. The new text explains why (12.0 it/s at 16 cores, 22.4 at
+32; a 2-GPU job is slower per unit of allocation), which is genuinely useful for reproduction.
+
+**`TODO(random-k)` removed, not acted on:** the appendix table numbers were flagged as "draw 0 only,
+carried over from the previous run set", but recomputing from all 45 random-K runs reproduces them
+exactly (72.97+-9.46 / 27.12+-10.75 / 54.70+-8.73 at K=48, etc.). The data was already correct and the
+comment was stale. Also verified the claim that all three languages share the same draws — every
+language's `random{K}_draw{i}.yaml` points at the same `data/region_subsets/random/random_{K}_draw{i}.json`.
+
+Remaining TODOs in the draft are now figures only: fig1, fig2, fig3, fig-prob.
+
+## Figures and tables regenerated — 2026-09-19
+
+`scripts/make_paper_figures.py` builds every figure except Fig 1 (method schematic, user is drawing it)
+from the current hard-concrete run set. Outputs PDF+PNG into `docs/figures/`.
+Palette validated with the dataviz skill's checker: adjacent-pair CVD dE 9.1, all checks PASS.
+
+| figure | replaces | reviewer complaint addressed |
+|---|---|---|
+| `fig_pareto` | `encoder_test_curves.png` | equal 14-pt y-span per panel; +-1 sd bands; log-K with 543 leftmost |
+| `fig_consensus` | `fig5_consensus_skeleton_iterative.png` | both null expectations printed per panel; consensus indices listed at K<=24 |
+| `fig_bodyparts` | `fig2_body_part_bars.png` | regenerated from current indices |
+| `fig_gate_probs` | `fig4_probability_curves.png` | now shows the real gate-closure boundary |
+| `fig_dynamics` | (new) | ABDG asked for gate-probability evolution across steps |
+
+**Two real errors found and fixed while doing this:**
+
+1. **Gate closure threshold.** `joint_probabilities.csv` stores P(z>0) = sigma(alpha - beta*log(-gamma/zeta)),
+   which never reaches 0, so a naive "p == 0" test reports zero closed gates and contradicts the method
+   section. A gate is deterministically closed when sigma(alpha) <= -gamma/(zeta-gamma) = 1/12, i.e.
+   **P(z>0) <= 0.3102**. That threshold reproduces the paper's 309 / 250 / 163 closed gates EXACTLY.
+   The old appendix caption ("without collapsing any sizable fraction to zero") contradicted the body
+   text; the appendix was rewritten as "Gate Probabilities and Training Dynamics".
+2. **TSLFormer seeds 4003/4004 exist only under the `_2gpu` filename variant.** Filtering those out
+   silently drops to n=3. The figure script now asserts n==5 and reproduces 87.04 / 60.96 / 66.85.
+
+**All tables verified against the run data — every one reproduces exactly:**
+dataset splits (226/28142/4418/3742, 2731/40154/10304/32941, 310/34957/2330/3500), Table 2 Pareto,
+random-K appendix, normalization ablation (-3.33/-3.67/+2.66 etc., all 9 cells), stage-1 stability
+(Spearman 0.901 n=15; top-100 81.5 [77-86], top-48 47.2 [46-48], top-24 22.5, top-10 9.0 [7-10]),
+detection rates, gate sweep. No table needed changing.
+
+**New finding, now in the paper.** The redrawn consensus figure re-exposes reviewer pa2X's W3 complaint:
+at K=100 **all ten lower-body landmarks (hips, knees, ankles, heels, feet) are retained on all three
+corpora**, as a block, despite carrying no articulatory signal. At K<=48 none survives — so the
+hard-concrete gate does fix the worst form of pa2X's objection (they also claimed lower-body ranked
+above hands at K=24/48; that is NOT true of this run set). Added a short factual note to
+sec:results:overlap with the body-in-frame rates (80.4% AUTSL, 52.6% ASL Citizen) as an untested
+proxy-for-torso explanation, flagged as a limitation rather than argued.

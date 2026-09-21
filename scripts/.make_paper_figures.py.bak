@@ -102,7 +102,7 @@ def fig_pareto(outdir):
     a ~65-point range that flattens the curves this figure exists to show. It is in
     Table 2 and Appendix B instead."""
     SPAN = 14.0
-    fig, axes = plt.subplots(1, 3, figsize=(6.3, 1.85))
+    fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.4))
     for ax, (lang, d) in zip(axes, LANGS.items()):
         topk = series(d, "topk{K}_seed*.yaml", KS)
         casc = series(d, "casc{K}_seed*.yaml", [100, 48, 24, 10])
@@ -168,9 +168,7 @@ def fig_consensus(outdir, ks=(100, 48, 24, 10)):
     sel = {lang: {K: set(json.load(open(f"{IDXDIR[lang]}/top_{K}_indices.json"))) for K in ks}
            for lang in LANGS}
 
-    # Drawn at the exact width it is rendered at (\textwidth = 16cm = 6.3in) so
-    # nothing is scaled down in the PDF and in-panel text keeps its point size.
-    fig, axes = plt.subplots(1, len(ks), figsize=(6.3, 2.20))
+    fig, axes = plt.subplots(1, len(ks), figsize=(7.1, 2.75))
     for ax, K in zip(np.atleast_1d(axes), ks):
         count = np.array([sum(K in sel[l] and i in sel[l][K] for l in LANGS) for i in range(543)])
         for a, b in BODY_CONNECTIONS:
@@ -178,30 +176,35 @@ def fig_consensus(outdir, ks=(100, 48, 24, 10)):
         for c in (0, 1, 2, 3):
             m = count == c
             if not m.any(): continue
-            ax.scatter(xy[m, 0], xy[m, 1], s=0.7 if c == 0 else 11.0, c=SEQ[c],
-                       linewidths=0.3 if c else 0,
+            ax.scatter(xy[m, 0], xy[m, 1], s=0.9 if c == 0 else 7.5, c=SEQ[c],
+                       linewidths=0.25 if c else 0,
                        edgecolors="white" if c else "none", zorder=2 + c)
         ax.set_title(f"$K={K}$", color=INK, pad=3)
         cons = list(np.where(count == 3)[0])
-        # Only the observed count is in-panel; both null expectations are in the
-        # caption, which keeps this legible at 10pt-caption scale.
-        ax.text(0.5, -0.015, f"all three: {len(cons)}\nchance: {NULL[K]:.1f}",
-                transform=ax.transAxes, ha="center", va="top",
-                fontsize=7.0, color=INK)
-        # Tighter box -> larger skeleton in the same footprint.
-        ax.set_xlim(0.13, 0.87); ax.set_ylim(1.0, -0.02); ax.axis("off")
-    handles = [Line2D([], [], marker="o", ls="", ms=4.5, markerfacecolor=SEQ[c],
+        note = (f"all three: {len(cons)}\nnull {NULL[K]:.1f} (strat.) / {UNIF[K]:g} (unif.)")
+        if K <= 24 and cons:              # list indices where they are few enough to read
+            wrapped, line = [], "indices: "
+            for t in (str(c) for c in cons):
+                if len(line) + len(t) + 2 > 30:
+                    wrapped.append(line); line = "  "
+                line += t + ", "
+            wrapped.append(line.rstrip(", "))
+            note += "\n" + "\n".join(wrapped)
+        ax.text(0.5, -0.02, note, transform=ax.transAxes, ha="center", va="top",
+                fontsize=5.6, color=MUTED)
+        ax.set_xlim(0.08, 0.92); ax.set_ylim(1.0, -0.02); ax.axis("off")
+    handles = [Line2D([], [], marker="o", ls="", ms=4, markerfacecolor=SEQ[c],
                       markeredgecolor="white", markeredgewidth=0.3,
                       label=f"{c} languages" if c != 1 else "1 language") for c in (0, 1, 2, 3)]
-    fig.legend(handles=handles, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.045),
-               handlelength=1.2, columnspacing=1.8, fontsize=8)
+    fig.legend(handles=handles, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.09),
+               handlelength=1.2, columnspacing=1.4)
     fig.tight_layout()
     save_(fig, outdir, "fig_consensus")
 
 
 # ── Appendix: body-part composition ──────────────────────────────────────────
 def fig_bodyparts(outdir, ks=(270, 100, 48, 24, 10)):
-    fig, axes = plt.subplots(1, 3, figsize=(6.3, 2.0), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.2), sharey=True)
     for ax, lang in zip(axes, LANGS):
         bottoms = np.zeros(len(ks))
         for g in GROUPS:
@@ -233,7 +236,7 @@ def fig_bodyparts(outdir, ks=(270, 100, 48, 24, 10)):
 def fig_gate_probs(outdir):
     """Sorted converged open probability per landmark, coloured by anatomical group.
     Shows both the ranking the method consumes and how many gates closed outright."""
-    fig, axes = plt.subplots(1, 3, figsize=(6.3, 2.0), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(7.1, 2.2), sharey=True)
     for ax, lang in zip(axes, LANGS):
         p = np.loadtxt(PROBS[lang], skiprows=1)
         order = np.argsort(-p)
@@ -281,7 +284,7 @@ def fig_dynamics(outdir):
     Per-landmark traces were not logged, but the p25/median/p75 envelope and the
     expected-L0 count were, which is what the claim actually rests on."""
     import pandas as pd
-    fig, axes = plt.subplots(2, 3, figsize=(6.3, 3.0), sharex=True)
+    fig, axes = plt.subplots(2, 3, figsize=(7.1, 3.4), sharex=True)
     for col, (lang, cfg) in enumerate(STAGE1.items()):
         save = yaml.safe_load(open(cfg))["save"]
         d = pd.read_csv(os.path.join(save, "logs/lightning_logs/version_0/metrics.csv"))
